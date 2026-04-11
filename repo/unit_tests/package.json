@@ -1,0 +1,10 @@
+{
+  "name": "lenswork-unit-tests",
+  "private": true,
+  "scripts": {
+    "test": "jest --forceExit --detectOpenHandles"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
+  }
+}

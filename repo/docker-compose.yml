@@ -1,0 +1,68 @@
+services:
+  mongo:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    environment:
+      MONGO_INITDB_DATABASE: lenswork
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    # Backend port is not exposed to host by default — access via nginx TLS proxy at :3443
+    # Uncomment below for direct HTTP access during development:
+    # ports:
+    #   - "3001:3001"
+    expose:
+      - "3001"
+    depends_on:
+      mongo:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      MONGODB_URI: mongodb://mongo:27017/lenswork
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      MASTER_ENCRYPTION_KEY: ${MASTER_ENCRYPTION_KEY:?Set MASTER_ENCRYPTION_KEY in .env}
+      BCRYPT_ROUNDS: "12"
+      RATE_LIMIT_PER_MIN: "300"
+      REPORTS_PER_DAY: "10"
+      IDLE_TIMEOUT_MS: "900000"
+      ABSOLUTE_EXPIRY_MS: "86400000"
+      NONCE_WINDOW_MS: "600000"
+      CLOCK_SKEW_MS: "120000"
+      UPLOAD_DIR: /app/uploads
+      LOG_LEVEL: info
+    volumes:
+      - server_uploads:/app/uploads
+      - ./unit_tests:/unit_tests:ro
+      - ./API_tests:/API_tests:ro
+    healthcheck:
+      test: ["CMD", "node", "-e", "const http=require('http');const r=http.request({hostname:'localhost',port:3001,path:'/api/health',timeout:2000},res=>{process.exit(res.statusCode===200?0:1)});r.on('error',()=>process.exit(1));r.end()"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    ports:
+      - "3443:443"
+      - "3080:80"
+    depends_on:
+      server:
+        condition: service_healthy
+
+volumes:
+  mongo_data:
+  server_uploads:

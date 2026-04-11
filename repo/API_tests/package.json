@@ -1,0 +1,10 @@
+{
+  "name": "lenswork-api-tests",
+  "private": true,
+  "scripts": {
+    "test": "jest --forceExit --detectOpenHandles --testTimeout=30000"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
+  }
+}
