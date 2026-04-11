@@ -8,7 +8,9 @@ echo "========================================="
 # Cleanup from any previous run
 echo "[SETUP] Cleaning up previous containers..."
 docker compose down --remove-orphans -v 2>/dev/null || true
-sleep 2
+docker rm -f $(docker ps -aq --filter "name=repo-") 2>/dev/null || true
+docker network rm repo_default 2>/dev/null || true
+sleep 1
 
 # Build and start services
 echo "[SETUP] Building and starting services..."
