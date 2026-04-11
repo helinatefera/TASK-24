@@ -27,6 +27,7 @@ Verification results
   - `client/src/components/shared/PasswordConfirmModal.tsx` uses masked `<input type="password">`
   - `client/src/pages/admin/ContentReviewPage.tsx` and `client/src/pages/admin/ReportManagementPage.tsx` use `NotesModal` (no prompt)
   - No `prompt(` matches under `client/src/`
+  - UX consistency: browser `prompt()` replaced by `PasswordConfirmModal` across agreement flows (JobDetailPage and other confirmation flows), addressing the earlier "Password re-entry UX is inconsistent" finding.
 - Next: Optional integration test for the full `JobDetailPage` confirm flow.
 
 2) Client-side role/authorization tamperability
@@ -67,6 +68,7 @@ Verification results
   - `client/src/components/shared/PasswordConfirmModal.tsx`
   - `client/src/test/JobAgreement.test.tsx`
   - `client/src/test/JobDetailAgreement.test.tsx`
+  - This change explicitly addresses the earlier 'Password re-entry UX is inconsistent' finding (M2) by standardizing on the masked modal across flows.
 - Next: Optional improvement — replace modal-level integration with a true page-level `JobDetailPage` API-call assertion.
 
 7) Timesheet 48-hour bilateral locking tests

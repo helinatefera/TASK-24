@@ -1,3 +1,269 @@
+# API Specification
+
+Version: 1.0
+Base URL: /api
+
+Overview
+--------
+This document describes the HTTP API for the EaglePoint SPA and backend. It documents the main endpoints mounted under `/api/*`, authentication, common request/response shapes, and the most important domain models used by the client and server. It follows the repository routes structure (see `server/src/routes`).
+
+Auth / Session
+----------------
+Base path: `/api/auth`
+
+- POST `/api/auth/register`
+  - Description: Create a new user account.
+  - Body: { name, email, password, role? }
+  - Response: 201 Created -> { id, name, email, role }
+
+- POST `/api/auth/login`
+  - Description: Authenticate and create a session.
+  - Body: { email, password }
+  - Response: 200 OK -> { user: User, token?: string } (server uses cookies when configured)
+
+- GET `/api/auth/me`
+  - Description: Return current authenticated user profile.
+  - Auth: required
+  - Response: 200 OK -> `User`
+
+- POST `/api/auth/logout`
+  - Description: Invalidate session / clear cookie.
+  - Auth: required
+  - Response: 200 OK
+
+Health
+------
+- GET `/api/health`
+  - Description: Basic health check.
+  - Response: 200 OK -> { status: 'ok', timestamp }
+
+Profiles
+--------
+Base path: `/api/profiles`
+
+- GET `/api/profiles/:id`
+  - Description: Fetch a public or own profile.
+  - Response: 200 OK -> `Profile`
+
+- PATCH `/api/profiles/:id`
+  - Description: Update profile fields (name, contact, privacy flags).
+  - Auth: required, only allowed for owner or admin
+  - Body: partial Profile fields
+  - Response: 200 OK -> updated `Profile`
+
+Privacy / Consent / Access Requests
+----------------------------------
+Base paths: `/api/privacy`, `/api/consent`, `/api/access-requests`
+
+- These endpoints implement profile privacy settings, consent management, and access request flows for users requesting access to private profile fields or exports. Typical operations: GET/POST for consent records, POST to request access, admin endpoints under `/api/admin` to approve/deny.
+
+Portfolios & Verification
+-------------------------
+Base paths: `/api/portfolios`, `/api/verification`
+
+- POST `/api/portfolios` — upload portfolio metadata or create portfolio entries.
+- GET `/api/portfolios/:id` — fetch portfolio and linked assets.
+- POST `/api/verification` — submit verification artifacts for a user.
+
+Jobs / Agreements / Messages
+---------------------------
+Base path: `/api/jobs`
+
+- POST `/api/jobs`
+  - Description: Create a job listing.
+  - Auth: `ALUMNI` or `ADMIN` (see server `authorize` middleware)
+  - Body: job creation DTO (title, description, rate, dates, clientId, etc.)
+  - Response: 201 Created -> `Job`
+
+- GET `/api/jobs`
+  - Description: Query jobs (supports query params)
+  - Auth: allowed for `ALUMNI`, `PHOTOGRAPHER`, `ADMIN`
+  - Response: 200 OK -> [Job]
+
+- GET `/api/jobs/:id`
+  - Description: Get job detail
+  - Auth: allowed for relevant roles
+  - Response: 200 OK -> `Job`
+
+- PUT `/api/jobs/:id`
+  - Description: Update job metadata
+  - Auth: owner `ALUMNI` or `ADMIN`
+  - Response: 200 OK -> updated `Job`
+
+- PATCH `/api/jobs/:id/assign`
+  - Description: Assign a photographer or change assignment
+  - Auth: `ALUMNI` or `ADMIN`
+
+- POST `/api/jobs/:id/agreement/confirm`
+  - Description: Confirm bilateral agreement (password re-entry flow on client)
+  - Auth: `ALUMNI`, `PHOTOGRAPHER`, `ADMIN`
+  - Response: 200 OK -> confirmation result
+
+Deliverables & Files
+--------------------
+Deliverable upload endpoints are mounted under `/api/jobs/:jobId/deliverables` via multipart upload.
+
+- POST `/api/jobs/:jobId/deliverables`
+  - Description: Upload a deliverable file for a job.
+  - Auth: `PHOTOGRAPHER` or `ADMIN`
+  - Request: `multipart/form-data` with field `file` (server enforces allowed MIME types and 10MB limit)
+  - Response: 201 Created -> { id, filename, jobId, url }
+
+- GET `/api/jobs/:jobId/deliverables`
+  - Description: List deliverables for a job.
+
+- Files served under `/api/files` (file metadata and download endpoints)
+
+Work Entries / Timesheets
+-------------------------
+Base path patterns: `/api/jobs/*` and `/api/work-entries`
+
+- Endpoints support creating, querying, and confirming work entries. Timesheet bilateral locking and 48-hour rules are enforced by backend logic; client provides UI to confirm.
+
+Settlements & Payments / Escrow
+-------------------------------
+Base paths: `/api/jobs/:jobId/settlement`, `/api/settlements`, `/api/settlements/*` and `/api/settlements` for payments
+
+- POST `/api/jobs/:jobId/settlement`
+  - Description: Generate a settlement for a job (calculates amounts, fees, splits)
+  - Auth: `ALUMNI`, `PHOTOGRAPHER`, `ADMIN`
+  - Response: 201 Created -> `Settlement`
+
+- Payment-related endpoints are mounted under `/api/settlements` and `/api/payments` to record payment events and receipts.
+
+Reports & Content Review
+------------------------
+Base path: `/api/reports`, `/api/admin` for content review and admin tools
+
+- `/api/reports` supports creating content reports and listing reports.
+- Admin endpoints under `/api/admin` include content review, sensitive-words administration, and audit logs access. These require `ADMIN` role and server-side RBAC.
+
+Audit
+-----
+Base path: `/api/admin/audit` (mounted via admin routes)
+
+- Exposes append-only audit logs and actions taken by admins. Access restricted to admin roles.
+
+Error Handling
+--------------
+- Standard JSON error shape used across the API:
+
+  {
+    "status": "error",
+    "message": "Human-friendly error message",
+    "code": "ERR_CODE" (optional),
+    "details": { ... } (optional)
+  }
+
+- Common HTTP status codes: 200 OK, 201 Created, 400 Bad Request (validation), 401 Unauthorized, 403 Forbidden (RBAC), 404 Not Found, 500 Internal Server Error.
+
+Authentication & Authorization
+------------------------------
+- The server uses session or token-based authentication. Client previously stored tokens in `localStorage`; the fix-check uses cookies (`withCredentials: true`) in production builds. All sensitive endpoints use the `authorize` middleware which accepts allowed `Role` values. Do not rely only on client-side role checks.
+
+Models (Representative)
+-----------------------
+- User
+  - id: string
+  - name: string
+  - email: string
+  - role: 'ALUMNI' | 'PHOTOGRAPHER' | 'ADMIN'
+
+- Profile
+  - id: string
+  - userId: string
+  - displayName: string
+  - privacy: { phone: boolean, email: boolean, ... }
+
+- Job
+  - id: string
+  - title: string
+  - description: string
+  - clientId: string (alumni)
+  - assignedPhotographerId?: string
+  - status: 'open' | 'assigned' | 'completed' | 'archived'
+  - rate, currency, dates, metadata
+
+- Deliverable
+  - id: string
+  - jobId: string
+  - filename: string
+  - mimeType: string
+  - size: number
+  - url: string
+
+- WorkEntry
+  - id: string
+  - jobId: string
+  - userId: string
+  - startTime, endTime, duration
+  - status: 'draft' | 'submitted' | 'locked'
+
+- Settlement
+  - id: string
+  - jobId: string
+  - totalAmount
+  - items: [ { description, amount } ]
+  - status: 'pending' | 'paid' | 'rejected'
+
+Examples
+--------
+Create job (example)
+
+POST /api/jobs
+
+Request body:
+
+{
+  "title": "Wedding shoot - Central Park",
+  "description": "Two photographers, 4 hours",
+  "rate": 1200,
+  "currency": "USD",
+  "clientId": "user_123"
+}
+
+Response (201):
+
+{
+  "id": "job_456",
+  "title": "Wedding shoot - Central Park",
+  "status": "open",
+  "clientId": "user_123"
+}
+
+Upload deliverable (example)
+
+POST /api/jobs/{jobId}/deliverables
+Content-Type: multipart/form-data
+Field: `file` (binary)
+
+Response (201):
+
+{
+  "id": "deliv_789",
+  "jobId": "job_456",
+  "filename": "gallery.zip",
+  "url": "/api/files/deliv_789"
+}
+
+Notes and Implementation Details
+--------------------------------
+- Server-side validation: routes use `validateRequest` middleware to enforce request shapes.
+- Content filtering middleware is applied to free-text fields where configured (e.g., job description) to enforce content rules.
+- File uploads are restricted by MIME type and size at the multer layer (`10MB`) and further validated by the file service for magic-bytes.
+- RBAC: `authorize(...)` middleware enforces role-level access on protected endpoints. Admin endpoints live under `/api/admin`.
+
+Where to look in code
+---------------------
+- Route mounting: `server/src/routes/index.ts`
+- Auth controllers: `server/src/controllers/auth.controller.ts`
+- Job API: `server/src/routes/jobs.routes.ts` and `server/src/controllers/job.controller.ts`
+- Deliverables: `server/src/routes/deliverables.routes.ts` and `server/src/controllers/deliverable.controller.ts`
+- Settlements / payments: `server/src/routes/settlements.routes.ts`, `server/src/routes/payments.routes.ts`
+- Files: `server/src/routes/files.routes.ts`
+- Admin & audit: `server/src/routes/admin.routes.ts`, `server/src/routes/audit.routes.ts`
+
+This spec is intentionally concise — use the route files listed above and the controller files for precise parameter names and validation schemas. If you want, I can expand this into a full OpenAPI/Swagger document (YAML/JSON) generated from the validation schemas used in `validateRequest`.
 # Eaglepoint API Specification (Implementation-Aligned)
 
 ## Runtime Reality
