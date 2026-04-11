@@ -1,4 +1,4 @@
-# API Specification
+# LensWork Alumni Photography Marketplace system API Specification
 
 Version: 1.0
 Base URL: /api
