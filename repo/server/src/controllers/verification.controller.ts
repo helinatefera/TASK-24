@@ -31,7 +31,8 @@ export async function submit(req: Request, res: Response, next: NextFunction): P
         allFiles.push(...field);
       }
     }
-    // Validate file type/format/size then store
+    // Validate file type/format/size then store.
+    // Checksums are computed server-side (SHA-256) — not client-supplied.
     const { validateAndStore } = await import('../services/file.service');
     const storedPaths: string[] = [];
     const checksums: string[] = [];

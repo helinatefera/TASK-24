@@ -54,6 +54,11 @@ export async function saveFile(input: SaveFileInput): Promise<{
 
 /**
  * Validate file and store it with a FileAttachment record.
+ *
+ * Checksum policy: The SHA-256 checksum is computed server-side from the
+ * uploaded buffer. Clients do NOT supply checksums — the server is the sole
+ * authority. Stored checksums can be used for integrity verification on
+ * subsequent reads or exports.
  */
 export async function validateAndStore(input: SaveFileInput) {
   // Validate file

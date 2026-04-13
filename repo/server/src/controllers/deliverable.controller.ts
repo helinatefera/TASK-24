@@ -33,7 +33,9 @@ export async function upload(req: Request, res: Response, next: NextFunction): P
       req.body.copyrightNotice,
       req.user!.userId,
     );
-    res.status(201).json(deliverable);
+    // Include server-computed checksum in response so clients can verify integrity.
+    // Checksums are always server-authoritative — clients do not supply them.
+    res.status(201).json({ ...deliverable.toObject(), checksum: attachment.checksum });
   } catch (err) {
     next(err);
   }

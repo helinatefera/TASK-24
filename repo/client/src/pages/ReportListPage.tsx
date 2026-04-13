@@ -23,7 +23,7 @@ export default function ReportListPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">My Reports</h1>
-        <Link to="/reports/create" className="bg-red-600 text-white px-4 py-2 rounded text-sm hover:bg-red-700">
+        <Link to="/reports/new" className="bg-red-600 text-white px-4 py-2 rounded text-sm hover:bg-red-700">
           New Report
         </Link>
       </div>

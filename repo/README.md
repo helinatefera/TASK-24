@@ -18,7 +18,7 @@ cp .env.example .env   # then edit .env with real secret values
 docker compose up
 ```
 
-All services build and start automatically once environment secrets are configured.
+All four required secrets (`JWT_SECRET`, `MASTER_ENCRYPTION_KEY`, `MONGO_INITDB_ROOT_USERNAME`, `MONGO_INITDB_ROOT_PASSWORD`) must be set in `.env`. **Docker Compose will abort with an error if any are missing.** There are no development defaults — every environment must supply its own credentials.
 
 ## Service URLs and Ports
 
@@ -136,7 +136,7 @@ After running `docker compose up`, verify the system works:
 - **Content filtering** with sensitive-word scanning
 - **Blacklist enforcement** at account and device level
 - **HTTPS** with self-signed TLS certificate
-- **Mandatory nonce + timestamp** on every request (except health check); missing headers return 400
+- **Mandatory nonce + timestamp** on every request (except health check); missing headers return 422 on mutation routes (POST/PUT/PATCH/DELETE) and 400 on read routes
 - **Hashed device fingerprints** — SHA-256 before storage/comparison; never stored in raw form
 - **Object-level access control** on jobs, settlements, payments, files, exports — only participants/admins can access
 - **Bilateral agreement e-confirmation** — requires password re-entry verified against bcrypt hash
@@ -244,9 +244,11 @@ Secrets are injected via a `.env` file (see Quick Start). All other variables ar
 
 | Variable | Source | Description |
 |----------|--------|-------------|
-| JWT_SECRET | `.env` (required) | JWT signing secret (64+ chars) |
-| MASTER_ENCRYPTION_KEY | `.env` (required) | AES-256 master key (64 hex chars) |
-| MONGODB_URI | docker-compose.yml | MongoDB connection |
+| JWT_SECRET | `.env` (required) | JWT signing secret (32+ chars). **Docker Compose will refuse to start if unset.** |
+| MASTER_ENCRYPTION_KEY | `.env` (required) | AES-256 master key (64 hex chars). **Docker Compose will refuse to start if unset.** |
+| MONGO_INITDB_ROOT_USERNAME | `.env` (required) | MongoDB admin username. **Docker Compose will refuse to start if unset.** |
+| MONGO_INITDB_ROOT_PASSWORD | `.env` (required) | MongoDB admin password. **Docker Compose will refuse to start if unset.** |
+| MONGODB_URI | docker-compose.yml | MongoDB connection (assembled from credentials above) |
 | BCRYPT_ROUNDS | docker-compose.yml | Password hashing rounds (default 12) |
 | RATE_LIMIT_PER_MIN | docker-compose.yml | Max requests per minute per IP (default 300) |
 | PORT | docker-compose.yml | Server port (default 3001) |

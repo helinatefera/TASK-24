@@ -29,6 +29,9 @@ export const settlementIdParamSchema = z.object({
 
 export async function generate(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
+    // Settlement totals are computed server-side from locked work entries.
+    // Checksums for associated file attachments (deliverables, evidence) are
+    // server-authoritative and returned on their respective endpoints.
     const settlement = await settlementService.generateSettlement(
       req.params.jobId,
       req.user!.userId,

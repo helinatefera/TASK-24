@@ -3,6 +3,7 @@ import { expireAccessRequests } from './accessRequestExpiry';
 import { lockWorkEntries } from './workEntryLocking';
 import { cleanupNonces } from './nonceCleanup';
 import { recheckConsents } from './consentRecheck';
+import { sendBookingReminders } from './bookingReminder';
 import { logger } from '../utils/logger';
 
 export function startScheduler(): void {
@@ -39,6 +40,15 @@ export function startScheduler(): void {
       await recheckConsents();
     } catch (err) {
       logger.error('Consent recheck job failed', { error: err });
+    }
+  });
+
+  // Every hour at :45: send booking reminders for upcoming events
+  cron.schedule('45 * * * *', async () => {
+    try {
+      await sendBookingReminders();
+    } catch (err) {
+      logger.error('Booking reminder job failed', { error: err });
     }
   });
 

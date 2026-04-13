@@ -72,9 +72,14 @@ export default function JobDetailPage() {
 
   const handleConfirmAgreement = async (password: string) => {
     if (!id) return;
-    await jobsApi.confirmAgreement(id, password);
-    setShowAgreementModal(false);
-    await fetchAll();
+    try {
+      await jobsApi.confirmAgreement(id, password);
+      setShowAgreementModal(false);
+      await fetchAll();
+    } catch (err: any) {
+      setError(err.response?.data?.msg || 'Agreement confirmation failed');
+      throw err;
+    }
   };
 
   if (loading) return <LoadingSpinner message="Loading job details..." />;

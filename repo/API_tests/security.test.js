@@ -312,7 +312,7 @@ describe('Security - Community Isolation', () => {
 });
 
 describe('Security - Nonce Enforcement', () => {
-  test('Request without nonce is rejected on protected routes', async () => {
+  test('Mutation request without nonce is rejected with 422', async () => {
     const http = require('http');
     const res = await new Promise((resolve, reject) => {
       const url = new URL('/api/auth/register', process.env.API_BASE || 'http://server:3001');
@@ -326,6 +326,24 @@ describe('Security - Nonce Enforcement', () => {
       });
       req.on('error', reject);
       req.write(JSON.stringify({ username: 'nonce_test', email: 'nt@t.com', password: 'Test1234!' }));
+      req.end();
+    });
+    expect(res.status).toBe(422);
+    expect(res.data.msg).toContain('X-Nonce');
+  });
+
+  test('GET request without nonce is rejected with 400', async () => {
+    const http = require('http');
+    const res = await new Promise((resolve, reject) => {
+      const url = new URL('/api/profiles', process.env.API_BASE || 'http://server:3001');
+      const req = http.request({
+        hostname: url.hostname, port: url.port, path: url.pathname, method: 'GET',
+      }, (res) => {
+        let data = '';
+        res.on('data', chunk => data += chunk);
+        res.on('end', () => { try { resolve({ status: res.statusCode, data: JSON.parse(data) }); } catch { resolve({ status: res.statusCode, data }); } });
+      });
+      req.on('error', reject);
       req.end();
     });
     expect(res.status).toBe(400);

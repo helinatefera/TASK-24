@@ -15,6 +15,7 @@ export interface IJob extends Document {
   serviceAgreementId?: mongoose.Types.ObjectId;
   clientConfirmed: boolean;
   photographerConfirmed: boolean;
+  eventDate?: Date;
   completedAt?: Date;
 }
 
@@ -32,6 +33,7 @@ const JobSchema = new Schema<IJob>({
   serviceAgreementId: { type: Schema.Types.ObjectId, ref: 'ServiceAgreement' },
   clientConfirmed: { type: Boolean, default: false },
   photographerConfirmed: { type: Boolean, default: false },
+  eventDate: { type: Date },
   completedAt: Date,
 }, { timestamps: true });
 

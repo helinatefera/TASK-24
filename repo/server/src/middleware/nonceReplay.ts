@@ -19,7 +19,10 @@ export async function nonceReplay(req: Request, _res: Response, next: NextFuncti
     const timestamp = req.headers['x-timestamp'] as string;
 
     if (!nonce || !timestamp) {
-      return next(new ValidationError('X-Nonce and X-Timestamp headers are required'));
+      const isMutation = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method);
+      const code = isMutation ? 422 : 400;
+      _res.status(code).json({ code, msg: 'X-Nonce and X-Timestamp headers are required' });
+      return;
     }
 
     const requestTime = parseInt(timestamp, 10);

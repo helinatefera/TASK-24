@@ -7,6 +7,8 @@ services:
       - mongo_data:/data/db
     environment:
       MONGO_INITDB_DATABASE: lenswork
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:?MONGO_INITDB_ROOT_USERNAME must be set in .env}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:?MONGO_INITDB_ROOT_PASSWORD must be set in .env}
     healthcheck:
       test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
       interval: 5s
@@ -29,9 +31,9 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3001
-      MONGODB_URI: mongodb://mongo:27017/lenswork
-      JWT_SECRET: ${JWT_SECRET:-k8Tp2mXw9Qr7Lv0Tn8Yc5Bd4Jh6Gs1EuRoWxAiMf3Fz}
-      MASTER_ENCRYPTION_KEY: ${MASTER_ENCRYPTION_KEY:-4f8a1c3e5b7d9021f6a8c4e2b0d7f3a1e5c9b2d4f6a8013579bde24680acf135}
+      MONGODB_URI: mongodb://${MONGO_INITDB_ROOT_USERNAME}:${MONGO_INITDB_ROOT_PASSWORD}@mongo:27017/lenswork?authSource=admin
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in .env}
+      MASTER_ENCRYPTION_KEY: ${MASTER_ENCRYPTION_KEY:?MASTER_ENCRYPTION_KEY must be set in .env}
       BCRYPT_ROUNDS: "12"
       RATE_LIMIT_PER_MIN: "300"
       REPORTS_PER_DAY: "10"

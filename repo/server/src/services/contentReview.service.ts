@@ -1,6 +1,6 @@
 import { ContentReview } from '../models';
 import { ContentReviewStatus, ReviewableContentType } from '../types/enums';
-import { NotFoundError } from '../utils/errors';
+import { NotFoundError, ValidationError } from '../utils/errors';
 
 export async function submitForReview(contentType: ReviewableContentType, contentId: string, submittedBy: string, flaggedWords: string[]) {
   return ContentReview.create({ contentType, contentId, submittedBy, flaggedWords, status: ContentReviewStatus.PENDING });
@@ -18,6 +18,13 @@ export async function getPending(page = 1, limit = 20) {
 export async function reviewContent(id: string, reviewedBy: string, status: ContentReviewStatus, reviewNotes?: string) {
   const review = await ContentReview.findById(id);
   if (!review) throw new NotFoundError('Content review not found');
+
+  if (review.status !== ContentReviewStatus.PENDING) {
+    throw new ValidationError(
+      `Cannot review content with status "${review.status}". Only pending content can be reviewed.`
+    );
+  }
+
   review.status = status;
   review.reviewedBy = reviewedBy as any;
   review.reviewNotes = reviewNotes;

@@ -5,6 +5,13 @@ echo "========================================="
 echo " LensWork Test Runner"
 echo "========================================="
 
+# Export required secrets for the test environment if not already set.
+# These are test-only values — never use in production.
+export JWT_SECRET="${JWT_SECRET:-$(openssl rand -base64 48)}"
+export MASTER_ENCRYPTION_KEY="${MASTER_ENCRYPTION_KEY:-$(openssl rand -hex 32)}"
+export MONGO_INITDB_ROOT_USERNAME="${MONGO_INITDB_ROOT_USERNAME:-lenswork_test}"
+export MONGO_INITDB_ROOT_PASSWORD="${MONGO_INITDB_ROOT_PASSWORD:-$(openssl rand -base64 24)}"
+
 # Cleanup from any previous run
 echo "[SETUP] Cleaning up previous containers..."
 docker compose down --remove-orphans -v 2>/dev/null || true
@@ -46,7 +53,7 @@ echo ""
 
 # Run unit tests inside server container (jest installed as devDep)
 docker compose exec -T -w /app server sh -c "
-  ./node_modules/.bin/jest --roots /unit_tests --testEnvironment node --forceExit --detectOpenHandles --no-cache 2>&1
+  ./node_modules/.bin/jest --roots /unit_tests --testEnvironment node --forceExit --detectOpenHandles --no-cache --cacheDirectory /tmp/jest-cache 2>&1
 " && echo "[UNIT] PASS" || { echo "[UNIT] FAIL"; FAILURES=$((FAILURES+1)); }
 
 # ==========================================
@@ -59,7 +66,7 @@ echo "========================================="
 echo ""
 
 docker compose exec -T -w /app server sh -c "
-  cd /API_tests && API_BASE=http://localhost:3001 /app/node_modules/.bin/jest --forceExit --detectOpenHandles --testTimeout=30000 --no-cache 2>&1
+  cd /API_tests && API_BASE=http://localhost:3001 /app/node_modules/.bin/jest --forceExit --detectOpenHandles --testTimeout=30000 --no-cache --cacheDirectory /tmp/jest-cache 2>&1
 " && echo "[API] PASS" || { echo "[API] FAIL"; FAILURES=$((FAILURES+1)); }
 
 # ==========================================

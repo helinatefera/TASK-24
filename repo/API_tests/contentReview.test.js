@@ -93,4 +93,46 @@ describe('Content Review Decision Flow', () => {
     }, userToken);
     expect(res.status).toBe(403);
   });
+
+  test('Cannot reject already-approved content → 400', async () => {
+    // reviewId was approved in an earlier test — attempt to reject it now
+    const res = await request('PATCH', `/api/admin/content-reviews/${reviewId}`, {
+      decision: 'rejected',
+      reason: 'Changed my mind',
+    }, adminToken);
+    expect(res.status).toBe(400);
+    expect(res.data.msg).toMatch(/pending/i);
+  });
+
+  test('Cannot approve already-rejected content → 400', async () => {
+    // Seed a review, reject it, then try to approve
+    const mongoose = require('/app/node_modules/mongoose');
+    const conn = await mongoose.createConnection(process.env.MONGODB_URI || 'mongodb://mongo:27017/lenswork').asPromise();
+    let rejectedId;
+    try {
+      const result = await conn.collection('contentreviews').insertOne({
+        contentType: 'job_message',
+        contentId: new mongoose.Types.ObjectId(),
+        submittedBy: new mongoose.Types.ObjectId(userId),
+        flaggedWords: ['bad'],
+        status: 'pending',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      rejectedId = result.insertedId.toString();
+    } finally { await conn.close(); }
+
+    // First reject it
+    const rejectRes = await request('PATCH', `/api/admin/content-reviews/${rejectedId}`, {
+      status: 'rejected', reviewNotes: 'Not appropriate',
+    }, adminToken);
+    expect(rejectRes.status).toBe(200);
+
+    // Now try to approve — should fail since it's no longer pending
+    const approveRes = await request('PATCH', `/api/admin/content-reviews/${rejectedId}`, {
+      status: 'approved', reviewNotes: 'Actually it was fine',
+    }, adminToken);
+    expect(approveRes.status).toBe(400);
+    expect(approveRes.data.msg).toMatch(/pending/i);
+  });
 });

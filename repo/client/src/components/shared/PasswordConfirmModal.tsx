@@ -34,7 +34,7 @@ export default function PasswordConfirmModal({
       setError('');
       onClose();
     } catch (err: any) {
-      setError(err.response?.data?.msg || err.message || 'Confirmation failed');
+      setError(err.response?.data?.msg || 'Confirmation failed');
     } finally {
       setLoading(false);
     }
