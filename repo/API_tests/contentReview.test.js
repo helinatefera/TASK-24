@@ -1,12 +1,13 @@
-const { request, createAdminUser } = require('./helpers');
+const { request, createAdminUser, createVerifiedPhotographer } = require('./helpers');
 
 describe('Content Review Decision Flow', () => {
   let adminToken;
-  let userToken, userId;
+  let clientToken, clientId;
+  let photographerToken, photographerId;
+  let jobId;
   let reviewId;
 
   beforeAll(async () => {
-    const mongoose = require('/app/node_modules/mongoose');
     const ts = Date.now();
 
     const admin = await createAdminUser();
@@ -15,23 +16,49 @@ describe('Content Review Decision Flow', () => {
     const user = await request('POST', '/api/auth/register', {
       username: `crUser_${ts}`, email: `cr${ts}@t.com`, password: 'CrPass123!',
     });
-    userToken = user.data.token;
-    userId = user.data.user._id;
+    clientToken = user.data.token;
+    clientId = user.data.user._id;
 
-    // Seed a pending content review directly
-    const conn = await mongoose.createConnection(process.env.MONGODB_URI || 'mongodb://mongo:27017/lenswork').asPromise();
-    try {
-      const result = await conn.collection('contentreviews').insertOne({
-        contentType: 'job_message',
-        contentId: new mongoose.Types.ObjectId(),
-        submittedBy: new mongoose.Types.ObjectId(userId),
-        flaggedWords: ['test'],
-        status: 'pending',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
-      reviewId = result.insertedId.toString();
-    } finally { await conn.close(); }
+    // Verified photographer for messaging
+    const photog = await createVerifiedPhotographer(adminToken);
+    photographerToken = photog.token;
+    photographerId = photog.userId;
+
+    // Create a job and get to in_progress so messages work
+    const jobRes = await request('POST', '/api/jobs', {
+      title: 'CR Test Job', description: 'Content review trigger test',
+      jobType: 'portrait', rateType: 'piece_rate', agreedRateCents: 5000, estimatedTotalCents: 10000,
+    }, clientToken);
+    jobId = jobRes.data._id;
+    await request('PUT', `/api/jobs/${jobId}`, { status: 'posted' }, clientToken);
+    await request('PATCH', `/api/jobs/${jobId}/assign`, { photographerId }, clientToken);
+    await request('POST', `/api/jobs/${jobId}/agreement/confirm`, { password: 'CrPass123!' }, clientToken);
+    await request('POST', `/api/jobs/${jobId}/agreement/confirm`, { password: 'PhotPass123!' }, photographerToken);
+
+    // Add a sensitive word via admin API so the content filter can flag it
+    await request('POST', '/api/admin/sensitive-words', {
+      word: 'badtestword', severity: 'high',
+    }, adminToken);
+
+    // Send a message containing the flagged word — triggers content review creation
+    const msgRes = await request('POST', `/api/jobs/${jobId}/messages`, {
+      text: 'This message contains badtestword and should be flagged',
+    }, photographerToken);
+    // Message should succeed (content filter flags but doesn't block)
+    expect(msgRes.status).toBe(201);
+
+    // The content filter should have created a pending content review
+    const reviewsRes = await request('GET', '/api/admin/content-reviews', null, adminToken);
+    const pending = (reviewsRes.data.items || reviewsRes.data || []).find(
+      r => r.status === 'pending' && r.flaggedWords && r.flaggedWords.includes('badtestword')
+    );
+    if (pending) {
+      reviewId = pending._id;
+    }
+  }, 60000);
+
+  test('Content review was created by the content filter', () => {
+    expect(reviewId).toBeDefined();
   });
 
   test('Admin can list pending reviews', async () => {
@@ -41,38 +68,30 @@ describe('Content Review Decision Flow', () => {
   });
 
   test('Non-admin cannot list reviews → 403', async () => {
-    const res = await request('GET', '/api/admin/content-reviews', null, userToken);
+    const res = await request('GET', '/api/admin/content-reviews', null, clientToken);
     expect(res.status).toBe(403);
   });
 
   test('Admin can approve review with {status, reviewNotes}', async () => {
     const res = await request('PATCH', `/api/admin/content-reviews/${reviewId}`, {
       status: 'approved',
-      reviewNotes: 'Content is fine',
+      reviewNotes: 'Content is fine after inspection',
     }, adminToken);
     expect(res.status).toBe(200);
     expect(res.data.status).toBe('approved');
   });
 
   test('Admin can reject review with {decision, reason} (frontend shape)', async () => {
-    // Re-seed a new pending review
-    const mongoose = require('/app/node_modules/mongoose');
-    const conn = await mongoose.createConnection(process.env.MONGODB_URI || 'mongodb://mongo:27017/lenswork').asPromise();
-    let newId;
-    try {
-      const result = await conn.collection('contentreviews').insertOne({
-        contentType: 'portfolio',
-        contentId: new mongoose.Types.ObjectId(),
-        submittedBy: new mongoose.Types.ObjectId(userId),
-        flaggedWords: [],
-        status: 'pending',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
-      newId = result.insertedId.toString();
-    } finally { await conn.close(); }
+    // Trigger another content review via a new flagged message
+    await request('POST', `/api/jobs/${jobId}/messages`, {
+      text: 'Another badtestword message for rejection test',
+    }, photographerToken);
 
-    const res = await request('PATCH', `/api/admin/content-reviews/${newId}`, {
+    const reviewsRes = await request('GET', '/api/admin/content-reviews?status=pending', null, adminToken);
+    const pending = (reviewsRes.data.items || reviewsRes.data || []).find(r => r.status === 'pending');
+    expect(pending).toBeDefined();
+
+    const res = await request('PATCH', `/api/admin/content-reviews/${pending._id}`, {
       decision: 'rejected',
       reason: 'Inappropriate content',
     }, adminToken);
@@ -90,12 +109,12 @@ describe('Content Review Decision Flow', () => {
   test('Non-admin cannot PATCH review → 403', async () => {
     const res = await request('PATCH', `/api/admin/content-reviews/${reviewId}`, {
       status: 'approved',
-    }, userToken);
+    }, clientToken);
     expect(res.status).toBe(403);
   });
 
   test('Cannot reject already-approved content → 400', async () => {
-    // reviewId was approved in an earlier test — attempt to reject it now
+    // reviewId was approved earlier — attempt to reject it now
     const res = await request('PATCH', `/api/admin/content-reviews/${reviewId}`, {
       decision: 'rejected',
       reason: 'Changed my mind',
@@ -105,31 +124,23 @@ describe('Content Review Decision Flow', () => {
   });
 
   test('Cannot approve already-rejected content → 400', async () => {
-    // Seed a review, reject it, then try to approve
-    const mongoose = require('/app/node_modules/mongoose');
-    const conn = await mongoose.createConnection(process.env.MONGODB_URI || 'mongodb://mongo:27017/lenswork').asPromise();
-    let rejectedId;
-    try {
-      const result = await conn.collection('contentreviews').insertOne({
-        contentType: 'job_message',
-        contentId: new mongoose.Types.ObjectId(),
-        submittedBy: new mongoose.Types.ObjectId(userId),
-        flaggedWords: ['bad'],
-        status: 'pending',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
-      rejectedId = result.insertedId.toString();
-    } finally { await conn.close(); }
+    // Trigger yet another review and reject it, then try to approve
+    await request('POST', `/api/jobs/${jobId}/messages`, {
+      text: 'Third badtestword message for double-action test',
+    }, photographerToken);
 
-    // First reject it
-    const rejectRes = await request('PATCH', `/api/admin/content-reviews/${rejectedId}`, {
+    const reviewsRes = await request('GET', '/api/admin/content-reviews?status=pending', null, adminToken);
+    const pending = (reviewsRes.data.items || reviewsRes.data || []).find(r => r.status === 'pending');
+    expect(pending).toBeDefined();
+
+    // Reject it
+    const rejectRes = await request('PATCH', `/api/admin/content-reviews/${pending._id}`, {
       status: 'rejected', reviewNotes: 'Not appropriate',
     }, adminToken);
     expect(rejectRes.status).toBe(200);
 
-    // Now try to approve — should fail since it's no longer pending
-    const approveRes = await request('PATCH', `/api/admin/content-reviews/${rejectedId}`, {
+    // Now try to approve — should fail
+    const approveRes = await request('PATCH', `/api/admin/content-reviews/${pending._id}`, {
       status: 'approved', reviewNotes: 'Actually it was fine',
     }, adminToken);
     expect(approveRes.status).toBe(400);

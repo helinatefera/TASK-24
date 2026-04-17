@@ -62,22 +62,27 @@ export async function create(req: Request, res: Response, next: NextFunction): P
     const targetType = req.body.targetType || (req.body.targetUserId ? 'user' : 'message');
     const targetId = req.body.targetId || req.body.targetUserId || req.body.targetContentId;
 
+    // Require at least one evidence attachment — reports without evidence
+    // cannot be acted on by moderators and enable abuse of the flag system.
+    const uploadedFiles = req.files as Express.Multer.File[] | undefined;
+    if (!uploadedFiles || uploadedFiles.length === 0) {
+      res.status(400).json({ code: 400, msg: 'At least one evidence file is required to submit a report' });
+      return;
+    }
+
     // Validate file type/format/size then store as FileAttachment records
     const evidenceAttachmentIds: string[] = [];
-    const uploadedFiles = req.files as Express.Multer.File[] | undefined;
-    if (uploadedFiles && uploadedFiles.length > 0) {
-      const { validateAndStore } = await import('../services/file.service');
-      for (const file of uploadedFiles) {
-        const attachment = await validateAndStore({
-          buffer: file.buffer,
-          originalName: file.originalname,
-          mimeType: file.mimetype,
-          parentType: 'report',
-          parentId: req.user!.userId,
-          uploadedBy: req.user!.userId,
-        });
-        evidenceAttachmentIds.push(attachment._id!.toString());
-      }
+    const { validateAndStore } = await import('../services/file.service');
+    for (const file of uploadedFiles) {
+      const attachment = await validateAndStore({
+        buffer: file.buffer,
+        originalName: file.originalname,
+        mimeType: file.mimetype,
+        parentType: 'report',
+        parentId: req.user!.userId,
+        uploadedBy: req.user!.userId,
+      });
+      evidenceAttachmentIds.push(attachment._id!.toString());
     }
 
     const report = await reportService.createReport(req.user!.userId, {

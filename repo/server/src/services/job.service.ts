@@ -49,12 +49,16 @@ export async function getJobById(jobId: string, requesterId: string) {
   const requester = await User.findById(requesterId);
   const requesterRole = requester?.role;
 
-  // Object-level authorization: participants, community members with posted jobs, or admins
+  // Object-level authorization: participants, same-community members for posted jobs, or admins
   if (requesterRole !== Role.ADMIN) {
     const isParticipant = job.clientId.toString() === requesterId ||
       (job.photographerId && job.photographerId.toString() === requesterId);
-    const isPublicStatus = [JobStatus.POSTED].includes(job.status as JobStatus);
-    if (!isParticipant && !isPublicStatus) {
+    const isPostedJob = [JobStatus.POSTED].includes(job.status as JobStatus);
+    // Posted jobs are only visible to same-community members (alumni isolation).
+    // Cross-community access is denied even for posted jobs.
+    const isSameCommunity = requester?.communityId && job.communityId &&
+      requester.communityId === job.communityId;
+    if (!isParticipant && !(isPostedJob && isSameCommunity)) {
       throw new ForbiddenError('You do not have access to this job');
     }
   }

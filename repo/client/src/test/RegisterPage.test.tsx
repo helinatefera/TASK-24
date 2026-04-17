@@ -75,7 +75,7 @@ describe('RegisterPage', () => {
     mockRegister.mockRejectedValueOnce(new Error('network'));
     renderRegister();
 
-    fireEvent.change(input('Username'), { target: { value: 'x' } });
+    fireEvent.change(input('Username'), { target: { value: 'xyz' } });
     fireEvent.change(input('Email'), { target: { value: 'x@t.com' } });
     fireEvent.change(input('Password'), { target: { value: 'Pass1234' } });
     fireEvent.click(screen.getByRole('button', { name: /create account/i }));
@@ -89,7 +89,7 @@ describe('RegisterPage', () => {
     mockRegister.mockImplementation(() => new Promise(() => {}));
     renderRegister();
 
-    fireEvent.change(input('Username'), { target: { value: 'x' } });
+    fireEvent.change(input('Username'), { target: { value: 'xyz' } });
     fireEvent.change(input('Email'), { target: { value: 'x@t.com' } });
     fireEvent.change(input('Password'), { target: { value: 'Pass1234' } });
     fireEvent.click(screen.getByRole('button', { name: /create account/i }));
@@ -97,6 +97,32 @@ describe('RegisterPage', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /creating/i })).toBeDisabled();
     });
+  });
+
+  it('rejects short username with shared validator error', async () => {
+    renderRegister();
+    fireEvent.change(input('Username'), { target: { value: 'ab' } });
+    fireEvent.change(input('Email'), { target: { value: 'a@t.com' } });
+    fireEvent.change(input('Password'), { target: { value: 'Pass1234' } });
+    fireEvent.click(screen.getByRole('button', { name: /create account/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/username must be at least 3 characters/i)).toBeInTheDocument();
+    });
+    expect(mockRegister).not.toHaveBeenCalled();
+  });
+
+  it('rejects invalid email format', async () => {
+    renderRegister();
+    fireEvent.change(input('Username'), { target: { value: 'alice' } });
+    fireEvent.change(input('Email'), { target: { value: 'not-an-email' } });
+    fireEvent.change(input('Password'), { target: { value: 'Pass1234' } });
+    // HTML5 validation may prevent submit; bypass by calling submit directly via form
+    const form = screen.getByRole('button', { name: /create account/i }).closest('form')!;
+    fireEvent.submit(form);
+    // If HTML5 validation doesn't block, we check the error message
+    // Either way, register should not be called
+    expect(mockRegister).not.toHaveBeenCalled();
   });
 
   it('has link to login page', () => {

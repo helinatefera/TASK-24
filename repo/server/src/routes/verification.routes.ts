@@ -10,6 +10,7 @@ const router = Router();
 router.post('/submit', authorize(Role.PHOTOGRAPHER), upload.fields([
   { name: 'idDocument', maxCount: 1 },
   { name: 'qualificationDocs', maxCount: 5 },
+  { name: 'taxForm', maxCount: 1 },
   { name: 'documents', maxCount: 10 },
 ]), ctrl.submit);
 router.get('/status', ctrl.getStatus);

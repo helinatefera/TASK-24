@@ -5,34 +5,45 @@ echo "========================================="
 echo " LensWork Test Runner"
 echo "========================================="
 
-# Export required secrets for the test environment if not already set.
-# These are test-only values — never use in production.
-export JWT_SECRET="${JWT_SECRET:-$(openssl rand -base64 48)}"
-export MASTER_ENCRYPTION_KEY="${MASTER_ENCRYPTION_KEY:-$(openssl rand -hex 32)}"
-export MONGO_INITDB_ROOT_USERNAME="${MONGO_INITDB_ROOT_USERNAME:-lenswork_test}"
-export MONGO_INITDB_ROOT_PASSWORD="${MONGO_INITDB_ROOT_PASSWORD:-$(openssl rand -base64 24)}"
+# Generate a temporary .env with test-only secrets so docker compose
+# satisfies the :? required-variable checks without a user-supplied .env.
+# This file is removed during teardown.
+TEST_ENV_FILE=".env.test.generated"
+node -e "
+const c=require('crypto');
+const lines=[
+  'JWT_SECRET='+c.randomBytes(36).toString('base64'),
+  'MASTER_ENCRYPTION_KEY='+c.randomBytes(32).toString('hex'),
+  'MONGO_INITDB_ROOT_USERNAME=lenswork_test',
+  'MONGO_INITDB_ROOT_PASSWORD='+c.randomBytes(18).toString('base64url'),
+  'LOCK_HOURS=0',
+  'RATE_LIMIT_PER_MIN=10000',
+];
+require('fs').writeFileSync('$TEST_ENV_FILE',lines.join('\n')+'\n');
+"
+DC="docker compose --env-file $TEST_ENV_FILE"
 
 # Cleanup from any previous run
 echo "[SETUP] Cleaning up previous containers..."
-docker compose down --remove-orphans -v 2>/dev/null || true
+$DC down --remove-orphans -v 2>/dev/null || true
 docker rm -f $(docker ps -aq --filter "name=repo-") 2>/dev/null || true
 docker network rm repo_default 2>/dev/null || true
 sleep 1
 
 # Build and start services
 echo "[SETUP] Building and starting services..."
-docker compose up -d --build
+$DC up -d --build
 
 # Wait for server to be healthy
 echo "[SETUP] Waiting for server to be ready..."
 MAX_RETRIES=60
 RETRY=0
-until docker compose exec -T server node -e "const http=require('http');const r=http.request({hostname:'localhost',port:3001,path:'/api/health',timeout:2000},res=>{process.exit(res.statusCode===200?0:1)});r.on('error',()=>process.exit(1));r.end()" 2>/dev/null; do
+until $DC exec -T server node -e "const http=require('http');const r=http.request({hostname:'localhost',port:3001,path:'/api/health',timeout:2000},res=>{process.exit(res.statusCode===200?0:1)});r.on('error',()=>process.exit(1));r.end()" 2>/dev/null; do
   RETRY=$((RETRY+1))
   if [ $RETRY -ge $MAX_RETRIES ]; then
     echo "[ERROR] Server failed to start after $MAX_RETRIES retries"
-    docker compose logs server
-    docker compose down --remove-orphans -v
+    $DC logs server
+    $DC down --remove-orphans -v
     exit 1
   fi
   echo "  Waiting... ($RETRY/$MAX_RETRIES)"
@@ -51,9 +62,10 @@ echo " Running Unit Tests"
 echo "========================================="
 echo ""
 
-# Run unit tests inside server container (jest installed as devDep)
-docker compose exec -T -w /app server sh -c "
-  ./node_modules/.bin/jest --roots /unit_tests --testEnvironment node --forceExit --detectOpenHandles --no-cache --cacheDirectory /tmp/jest-cache 2>&1
+# Run unit tests inside server container with coverage
+$DC exec -T -w /app server sh -c "
+  ./node_modules/.bin/jest --roots /unit_tests --testEnvironment node --forceExit --detectOpenHandles --no-cache --cacheDirectory /tmp/jest-cache \
+    --coverage --collectCoverageFrom='/app/dist/**/*.js' --coverageDirectory=/tmp/coverage-unit --coverageReporters=text-summary 2>&1
 " && echo "[UNIT] PASS" || { echo "[UNIT] FAIL"; FAILURES=$((FAILURES+1)); }
 
 # ==========================================
@@ -65,9 +77,48 @@ echo " Running API Tests"
 echo "========================================="
 echo ""
 
-docker compose exec -T -w /app server sh -c "
-  cd /API_tests && API_BASE=http://localhost:3001 /app/node_modules/.bin/jest --forceExit --detectOpenHandles --testTimeout=30000 --no-cache --cacheDirectory /tmp/jest-cache 2>&1
+$DC exec -T -w /app server sh -c "
+  cd /API_tests && API_BASE=http://localhost:3001 /app/node_modules/.bin/jest --forceExit --detectOpenHandles --testTimeout=30000 --no-cache --cacheDirectory /tmp/jest-cache \
+    --coverage --collectCoverageFrom='/app/dist/**/*.js' --coverageDirectory=/tmp/coverage-api --coverageReporters=text-summary 2>&1
 " && echo "[API] PASS" || { echo "[API] FAIL"; FAILURES=$((FAILURES+1)); }
+
+# ==========================================
+# Client Tests (Vitest)
+# ==========================================
+echo ""
+echo "========================================="
+echo " Running Client Tests"
+echo "========================================="
+echo ""
+
+# Client container runs nginx (no Node.js). Build a temporary image from the
+# build stage and run vitest inside it.
+docker build --target build -t lenswork-client-test ./client 2>&1 | tail -1
+docker run --rm lenswork-client-test sh -c "npx vitest run --coverage 2>&1" \
+  && echo "[CLIENT] PASS" || { echo "[CLIENT] FAIL"; FAILURES=$((FAILURES+1)); }
+
+# ==========================================
+# Browser E2E Tests (Playwright)
+# ==========================================
+echo ""
+echo "========================================="
+echo " Running Browser E2E Tests"
+echo "========================================="
+echo ""
+
+# Build and run Playwright inside a container on the same Docker network,
+# hitting the real frontend+backend through nginx. Zero host dependencies.
+NETWORK=$($DC ps --format '{{.Networks}}' | head -1)
+# Read test credentials from the generated env file for the E2E container
+MONGO_USER=$(grep MONGO_INITDB_ROOT_USERNAME "$TEST_ENV_FILE" | cut -d= -f2)
+MONGO_PASS=$(grep MONGO_INITDB_ROOT_PASSWORD "$TEST_ENV_FILE" | cut -d= -f2)
+docker build -t lenswork-e2e ./e2e 2>&1 | tail -1
+docker run --rm --network "$NETWORK" \
+  -e E2E_BASE_URL=https://client:443 \
+  -e MONGO_INITDB_ROOT_USERNAME="$MONGO_USER" \
+  -e MONGO_INITDB_ROOT_PASSWORD="$MONGO_PASS" \
+  lenswork-e2e 2>&1 \
+  && echo "[E2E] PASS" || { echo "[E2E] FAIL"; FAILURES=$((FAILURES+1)); }
 
 # ==========================================
 # Summary
@@ -87,6 +138,7 @@ echo "========================================="
 
 # Cleanup
 echo "[TEARDOWN] Cleaning up..."
-docker compose down --remove-orphans -v
+$DC down --remove-orphans -v
+rm -f "$TEST_ENV_FILE"
 
 exit $FAILURES

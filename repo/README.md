@@ -14,11 +14,20 @@ A full-stack, Dockerized web application for alumni communities to engage verifi
 ## Quick Start
 
 ```bash
-cp .env.example .env   # then edit .env with real secret values
 docker compose up
 ```
 
-All four required secrets (`JWT_SECRET`, `MASTER_ENCRYPTION_KEY`, `MONGO_INITDB_ROOT_USERNAME`, `MONGO_INITDB_ROOT_PASSWORD`) must be set in `.env`. **Docker Compose will abort with an error if any are missing.** There are no development defaults — every environment must supply its own credentials.
+That's it. A committed `.env` at the repo root provides **development-only** secrets so the stack boots out of the box — suitable for local development and code review, not for production.
+
+**For production or any public deployment:** regenerate every secret per `.env.example` and replace the committed `.env`:
+
+```bash
+rm .env
+cp .env.example .env   # follow the commands in the comments to generate fresh secrets
+docker compose up
+```
+
+All four secrets (`JWT_SECRET`, `MASTER_ENCRYPTION_KEY`, `MONGO_INITDB_ROOT_USERNAME`, `MONGO_INITDB_ROOT_PASSWORD`) must be present in `.env` — Docker Compose aborts with a clear error if any are missing.
 
 ## Service URLs and Ports
 
@@ -90,7 +99,7 @@ After running `docker compose up`, verify the system works:
 
 ### Authentication
 - `POST /api/auth/register` — Register new user
-- `POST /api/auth/login` — Login (returns JWT)
+- `POST /api/auth/login` — Login (sets httpOnly session cookie)
 - `POST /api/auth/logout` — Logout (revokes session)
 
 ### Profiles & Privacy
@@ -130,7 +139,7 @@ After running `docker compose up`, verify the system works:
 - **bcrypt** (12+ rounds) password hashing
 - **JWT** with HMAC-SHA256, 15-minute idle timeout, 24-hour absolute expiry
 - **Nonce + timestamp** replay protection (10-minute window, ±2 min clock skew)
-- **Rate limiting**: 300 req/min per IP (configurable via `RATE_LIMIT_PER_MIN`), 10 reports/day
+- **Rate limiting**: 60 req/min per account (configurable via `RATE_LIMIT_PER_MIN`), 10 reports/day
 - **Append-only audit log** with 7-year retention
 - **Role-based access control** with fine-grained resource permissions
 - **Content filtering** with sensitive-word scanning
@@ -250,5 +259,5 @@ Secrets are injected via a `.env` file (see Quick Start). All other variables ar
 | MONGO_INITDB_ROOT_PASSWORD | `.env` (required) | MongoDB admin password. **Docker Compose will refuse to start if unset.** |
 | MONGODB_URI | docker-compose.yml | MongoDB connection (assembled from credentials above) |
 | BCRYPT_ROUNDS | docker-compose.yml | Password hashing rounds (default 12) |
-| RATE_LIMIT_PER_MIN | docker-compose.yml | Max requests per minute per IP (default 300) |
+| RATE_LIMIT_PER_MIN | docker-compose.yml | Max requests per minute per account (default 60) |
 | PORT | docker-compose.yml | Server port (default 3001) |

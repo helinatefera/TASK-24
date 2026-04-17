@@ -12,6 +12,8 @@ export default function VerificationReviewPage() {
   const [actionLoading, setActionLoading] = useState('');
   const [rejectionReason, setRejectionReason] = useState('');
   const [rejectingId, setRejectingId] = useState('');
+  const [needsChangesReason, setNeedsChangesReason] = useState('');
+  const [needsChangesId, setNeedsChangesId] = useState('');
 
   const fetchData = () => {
     setLoading(true);
@@ -52,6 +54,21 @@ export default function VerificationReviewPage() {
     }
   };
 
+  const handleNeedsChanges = async (id: string) => {
+    if (!needsChangesReason.trim()) { setError('Please describe what needs to change.'); return; }
+    setActionLoading(id);
+    try {
+      await adminApi.reviewVerification(id, { status: 'needs_changes', reviewNotes: needsChangesReason });
+      setNeedsChangesId('');
+      setNeedsChangesReason('');
+      fetchData();
+    } catch (err: any) {
+      setError(err.response?.data?.msg || 'Failed to request changes');
+    } finally {
+      setActionLoading('');
+    }
+  };
+
   return (
     <div>
       <h1 className="text-2xl font-bold mb-6">Verification Review</h1>
@@ -61,6 +78,7 @@ export default function VerificationReviewPage() {
         <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="border rounded px-3 py-2 text-sm">
           <option value="">All</option>
           <option value="pending">Pending</option>
+          <option value="needs_changes">Needs Changes</option>
           <option value="approved">Approved</option>
           <option value="rejected">Rejected</option>
         </select>
@@ -93,7 +111,7 @@ export default function VerificationReviewPage() {
                     </div>
                   )}
                 </div>
-                {req.status === 'pending' && (
+                {(req.status === 'pending' || req.status === 'submitted' || req.status === 'needs_changes') && (
                   <div className="flex gap-2">
                     <button
                       onClick={() => handleApprove(req._id)}
@@ -101,6 +119,13 @@ export default function VerificationReviewPage() {
                       className="bg-green-600 text-white px-3 py-1.5 rounded text-xs hover:bg-green-700 disabled:opacity-50"
                     >
                       Approve
+                    </button>
+                    <button
+                      onClick={() => setNeedsChangesId(needsChangesId === req._id ? '' : req._id)}
+                      disabled={actionLoading === req._id}
+                      className="bg-yellow-600 text-white px-3 py-1.5 rounded text-xs hover:bg-yellow-700 disabled:opacity-50"
+                    >
+                      Needs Changes
                     </button>
                     <button
                       onClick={() => setRejectingId(rejectingId === req._id ? '' : req._id)}
@@ -112,6 +137,24 @@ export default function VerificationReviewPage() {
                   </div>
                 )}
               </div>
+              {needsChangesId === req._id && (
+                <div className="mt-4 flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="What needs to change?"
+                    value={needsChangesReason}
+                    onChange={e => setNeedsChangesReason(e.target.value)}
+                    className="flex-1 border rounded px-3 py-2 text-sm"
+                  />
+                  <button
+                    onClick={() => handleNeedsChanges(req._id)}
+                    disabled={actionLoading === req._id || !needsChangesReason.trim()}
+                    className="bg-yellow-600 text-white px-3 py-1.5 rounded text-xs hover:bg-yellow-700 disabled:opacity-50"
+                  >
+                    Request Changes
+                  </button>
+                </div>
+              )}
               {rejectingId === req._id && (
                 <div className="mt-4 flex gap-2">
                   <input

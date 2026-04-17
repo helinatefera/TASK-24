@@ -14,6 +14,9 @@ export default function VerificationPage() {
   const [files, setFiles] = useState<File[]>([]);
   const [docType, setDocType] = useState('government_id');
   const [notes, setNotes] = useState('');
+  const [realName, setRealName] = useState('');
+  const [qualificationType, setQualificationType] = useState('general');
+  const [issuingAuthority, setIssuingAuthority] = useState('');
 
   useEffect(() => {
     verificationApi.getStatus()
@@ -25,6 +28,8 @@ export default function VerificationPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (files.length === 0) { setError('Please select a document to upload.'); return; }
+    if (realName.trim().length < 2) { setError('Legal name is required (min 2 characters).'); return; }
+    if (!qualificationType) { setError('Qualification type is required.'); return; }
     setSubmitting(true);
     setError('');
     setSuccess('');
@@ -32,11 +37,16 @@ export default function VerificationPage() {
       const formData = new FormData();
       files.forEach(f => formData.append('documents', f));
       formData.append('documentType', docType);
+      formData.append('realName', realName.trim());
+      formData.append('qualificationType', qualificationType);
+      if (issuingAuthority.trim()) formData.append('issuingAuthority', issuingAuthority.trim());
       formData.append('notes', notes);
       await verificationApi.submit(formData);
       setSuccess('Verification documents submitted successfully. You will be notified once reviewed.');
       setFiles([]);
       setNotes('');
+      setRealName('');
+      setIssuingAuthority('');
       const res = await verificationApi.getStatus();
       setStatus(res.data);
     } catch (err: any) {
@@ -77,6 +87,49 @@ export default function VerificationPage() {
           {success && <div className="bg-green-50 text-green-600 p-3 rounded text-sm">{success}</div>}
 
           <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Legal Name <span className="text-red-500">*</span></label>
+            <input
+              type="text"
+              value={realName}
+              onChange={e => setRealName(e.target.value)}
+              required
+              minLength={2}
+              maxLength={200}
+              className="w-full border rounded px-3 py-2 text-sm"
+              placeholder="Full legal name as shown on ID"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Qualification Type <span className="text-red-500">*</span></label>
+            <select
+              value={qualificationType}
+              onChange={e => setQualificationType(e.target.value)}
+              required
+              className="w-full border rounded px-3 py-2 text-sm"
+            >
+              <option value="general">General</option>
+              <option value="photography">Photography</option>
+              <option value="videography">Videography</option>
+              <option value="event">Event</option>
+              <option value="portrait">Portrait</option>
+              <option value="commercial">Commercial</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Issuing Authority</label>
+            <input
+              type="text"
+              value={issuingAuthority}
+              onChange={e => setIssuingAuthority(e.target.value)}
+              maxLength={200}
+              className="w-full border rounded px-3 py-2 text-sm"
+              placeholder="e.g. State DMV, Alumni Office"
+            />
+          </div>
+
+          <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Document Type</label>
             <select value={docType} onChange={e => setDocType(e.target.value)} className="w-full border rounded px-3 py-2 text-sm">
               <option value="government_id">Government ID</option>
@@ -99,7 +152,7 @@ export default function VerificationPage() {
             <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} className="w-full border rounded px-3 py-2 text-sm" placeholder="Any additional information..." />
           </div>
 
-          <button type="submit" disabled={submitting || files.length === 0} className="bg-primary-600 text-white px-6 py-2 rounded hover:bg-primary-700 disabled:opacity-50 text-sm">
+          <button type="submit" disabled={submitting || files.length === 0 || realName.trim().length < 2} className="bg-primary-600 text-white px-6 py-2 rounded hover:bg-primary-700 disabled:opacity-50 text-sm">
             {submitting ? 'Submitting...' : 'Submit for Verification'}
           </button>
         </form>

@@ -1,0 +1,13 @@
+{
+  "name": "lenswork-e2e",
+  "private": true,
+  "scripts": {
+    "test": "npx playwright test --config=playwright.config.js"
+  },
+  "dependencies": {
+    "mongoose": "^8.0.3"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.41.0"
+  }
+}

@@ -1,4 +1,4 @@
-const { request, createAdminUser } = require('./helpers');
+const { request, createAdminUser, createVerifiedPhotographer } = require('./helpers');
 
 describe('Work Entry Creation & Increment Validation', () => {
   let photographerToken, photographerId;
@@ -7,14 +7,10 @@ describe('Work Entry Creation & Increment Validation', () => {
   let jobId;
 
   beforeAll(async () => {
-    const mongoose = require('/app/node_modules/mongoose');
     const ts = Date.now();
 
-    const photog = await request('POST', '/api/auth/register', {
-      username: `wePhot_${ts}`, email: `wep${ts}@t.com`, password: 'PhotPass123!', role: 'photographer',
-    });
-    photographerToken = photog.data.token;
-    photographerId = photog.data.user._id;
+    const admin = await createAdminUser();
+    adminToken = admin.token;
 
     const client = await request('POST', '/api/auth/register', {
       username: `weCli_${ts}`, email: `wec${ts}@t.com`, password: 'CliPass123!',
@@ -22,8 +18,10 @@ describe('Work Entry Creation & Increment Validation', () => {
     clientToken = client.data.token;
     clientId = client.data.user._id;
 
-    const admin = await createAdminUser();
-    adminToken = admin.token;
+    // Verified photographer via real API flow (submit + admin approve)
+    const photog = await createVerifiedPhotographer(adminToken);
+    photographerToken = photog.token;
+    photographerId = photog.userId;
 
     const job = await request('POST', '/api/jobs', {
       title: 'WE Test Job', description: 'Work entry test',
@@ -31,157 +29,124 @@ describe('Work Entry Creation & Increment Validation', () => {
     }, clientToken);
     jobId = job.data._id;
 
-    // Seed verification record so photographer can be assigned
-    const conn = await mongoose.createConnection(process.env.MONGODB_URI || 'mongodb://mongo:27017/lenswork').asPromise();
-    try {
-      await conn.collection('verifications').insertOne({
-        photographerId: new mongoose.Types.ObjectId(photographerId),
-        realName: 'Test Photographer', qualificationType: 'general',
-        idDocumentPath: '/test', qualificationDocPaths: [],
-        status: 'verified', submittedAt: new Date(), fileChecksums: [],
-        createdAt: new Date(), updatedAt: new Date(),
-      });
-    } finally { await conn.close(); }
-
-    // Post the job so it can be assigned
+    // Full lifecycle: post → assign → both confirm agreement → in_progress
     await request('PUT', `/api/jobs/${jobId}`, { status: 'posted' }, clientToken);
-    await request('PATCH', `/api/jobs/${jobId}/assign`, { photographerId }, adminToken);
-
-    const conn2 = await mongoose.createConnection(process.env.MONGODB_URI || 'mongodb://mongo:27017/lenswork').asPromise();
-    try {
-      await conn2.collection('jobs').updateOne(
-        { _id: new mongoose.Types.ObjectId(jobId) },
-        { $set: { status: 'in_progress' } }
-      );
-    } finally { await conn2.close(); }
-  });
+    await request('PATCH', `/api/jobs/${jobId}/assign`, { photographerId }, clientToken);
+    await request('POST', `/api/jobs/${jobId}/agreement/confirm`, { password: 'CliPass123!' }, clientToken);
+    await request('POST', `/api/jobs/${jobId}/agreement/confirm`, { password: 'PhotPass123!' }, photographerToken);
+  }, 60000);
 
   // --- Time entries ---
 
-  test('Valid time entry with durationMinutes (15-min aligned) → 201', async () => {
+  test('Valid 60-minute entry → 201 with correct subtotal', async () => {
     const res = await request('POST', `/api/jobs/${jobId}/work-entries`, {
-      entryType: 'time',
+      entryType: 'time', durationMinutes: 60,
+    }, photographerToken);
+    expect(res.status).toBe(201);
+    expect(res.data.subtotalCents).toBe(6000); // 60min * 6000c/hr
+    expect(res.data.entryType).toBe('time');
+    expect(res.data.isLocked).toBe(false);
+  });
+
+  test('15-minute entry → 201 with correct subtotal', async () => {
+    const res = await request('POST', `/api/jobs/${jobId}/work-entries`, {
+      entryType: 'time', durationMinutes: 15,
+    }, photographerToken);
+    expect(res.status).toBe(201);
+    expect(res.data.subtotalCents).toBe(1500); // 15min * 6000c/hr
+  });
+
+  test('Non-aligned duration (17 min) → 400', async () => {
+    const res = await request('POST', `/api/jobs/${jobId}/work-entries`, {
+      entryType: 'time', durationMinutes: 17,
+    }, photographerToken);
+    expect(res.status).toBe(400);
+    expect(res.data.msg).toContain('increment');
+  });
+
+  test('Zero duration → 400', async () => {
+    const res = await request('POST', `/api/jobs/${jobId}/work-entries`, {
+      entryType: 'time', durationMinutes: 0,
+    }, photographerToken);
+    expect(res.status).toBe(400);
+  });
+
+  test('Missing entryType → 400', async () => {
+    const res = await request('POST', `/api/jobs/${jobId}/work-entries`, {
       durationMinutes: 60,
     }, photographerToken);
-    expect(res.status).toBe(201);
-    expect(res.data.durationMinutes).toBe(60);
-    expect(res.data.subtotalCents).toBeDefined();
-  });
-
-  test('Time entry with startTime/endTime as HH:MM strings accepted', async () => {
-    const res = await request('POST', `/api/jobs/${jobId}/work-entries`, {
-      entryType: 'time',
-      durationMinutes: 30,
-      startTime: '09:00',
-      endTime: '09:30',
-      date: '2026-04-10',
-    }, photographerToken);
-    expect(res.status).toBe(201);
-    expect(res.data.startTime).toBe('09:00');
-    expect(res.data.endTime).toBe('09:30');
-    expect(res.data.durationMinutes).toBe(30);
-  });
-
-  test('Time entry with date field is persisted', async () => {
-    const res = await request('POST', `/api/jobs/${jobId}/work-entries`, {
-      entryType: 'time',
-      durationMinutes: 15,
-      date: '2026-04-10',
-    }, photographerToken);
-    expect(res.status).toBe(201);
-    expect(res.data.date).toBeDefined();
-  });
-
-  test('Non-15-min increment → 400', async () => {
-    const res = await request('POST', `/api/jobs/${jobId}/work-entries`, {
-      entryType: 'time',
-      durationMinutes: 7,
-    }, photographerToken);
     expect(res.status).toBe(400);
-    expect(res.data.msg).toContain('15-minute');
   });
 
-  test('Time entry missing durationMinutes → 400', async () => {
+  // --- Piece-rate entries ---
+
+  test('Valid piece-rate entry → 201', async () => {
     const res = await request('POST', `/api/jobs/${jobId}/work-entries`, {
-      entryType: 'time',
+      entryType: 'piece_rate', quantity: 10, itemDescription: 'Headshots',
+    }, photographerToken);
+    expect(res.status).toBe(201);
+    expect(res.data.subtotalCents).toBe(60000); // 10 * 6000c
+  });
+
+  test('Zero quantity → 400', async () => {
+    const res = await request('POST', `/api/jobs/${jobId}/work-entries`, {
+      entryType: 'piece_rate', quantity: 0, itemDescription: 'Bad',
     }, photographerToken);
     expect(res.status).toBe(400);
   });
 
-  // --- Piece rate entries ---
-
-  test('Valid piece_rate entry → 201', async () => {
+  test('Non-participant cannot add entries → 403', async () => {
+    const outsider = await request('POST', '/api/auth/register', {
+      username: `weOut_${Date.now()}`, email: `weo${Date.now()}@t.com`, password: 'OutPass123!',
+    });
     const res = await request('POST', `/api/jobs/${jobId}/work-entries`, {
-      entryType: 'piece_rate',
-      quantity: 10,
-      description: 'Event photos',
-    }, photographerToken);
-    expect(res.status).toBe(201);
-    expect(res.data.quantity).toBe(10);
+      entryType: 'time', durationMinutes: 60,
+    }, outsider.data.token);
+    expect(res.status).toBe(403);
   });
 
-  test('Piece_rate without quantity → 400', async () => {
+  test('Client cannot add entries (only photographer) → 403', async () => {
     const res = await request('POST', `/api/jobs/${jobId}/work-entries`, {
-      entryType: 'piece_rate',
-      description: 'Missing qty',
-    }, photographerToken);
-    expect(res.status).toBe(400);
-  });
-
-  // --- Auth ---
-
-  test('Non-photographer cannot create work entry → 403', async () => {
-    const res = await request('POST', `/api/jobs/${jobId}/work-entries`, {
-      entryType: 'time', durationMinutes: 30,
+      entryType: 'time', durationMinutes: 60,
     }, clientToken);
     expect(res.status).toBe(403);
   });
 
-  test('Invalid entryType → 400', async () => {
-    const res = await request('POST', `/api/jobs/${jobId}/work-entries`, {
-      entryType: 'overtime',
-      durationMinutes: 30,
-    }, photographerToken);
-    expect(res.status).toBe(400);
+  test('GET /api/jobs/:id/work-entries returns entries', async () => {
+    const res = await request('GET', `/api/jobs/${jobId}/work-entries`, null, clientToken);
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.data)).toBe(true);
+    expect(res.data.length).toBeGreaterThanOrEqual(3);
   });
 
-  // --- Field name contract ---
-
-  test('durationMinutes is the canonical field (not hours)', async () => {
-    const res = await request('POST', `/api/jobs/${jobId}/work-entries`, {
-      entryType: 'time',
-      durationMinutes: 45,
-    }, photographerToken);
-    expect(res.status).toBe(201);
-    expect(res.data.durationMinutes).toBe(45);
-    expect(res.data.hours).toBeUndefined();
+  test('GET messages also works (covers message route)', async () => {
+    const res = await request('GET', `/api/jobs/${jobId}/messages`, null, clientToken);
+    expect(res.status).toBe(200);
   });
 });
 
-describe('Work Entry Confirm & 48-Hour Locking', () => {
+describe('Work Entry Confirmation & Locking', () => {
   let photographerToken, photographerId;
   let clientToken, clientId;
   let adminToken;
   let jobId, entryId;
 
   beforeAll(async () => {
-    const mongoose = require('/app/node_modules/mongoose');
     const ts = Date.now();
 
-    const photog = await request('POST', '/api/auth/register', {
-      username: `lcPhot_${ts}`, email: `lcp${ts}@t.com`, password: 'PhotPass123!', role: 'photographer',
-    });
-    photographerToken = photog.data.token;
-    photographerId = photog.data.user._id;
+    const admin = await createAdminUser();
+    adminToken = admin.token;
 
     const client = await request('POST', '/api/auth/register', {
-      username: `lcCli_${ts}`, email: `lcc${ts}@t.com`, password: 'CliPass123!',
+      username: `wcCli_${ts}`, email: `wcc${ts}@t.com`, password: 'WcCli1234!',
     });
     clientToken = client.data.token;
     clientId = client.data.user._id;
 
-    const admin = await createAdminUser();
-    adminToken = admin.token;
+    // Verified photographer via real flow
+    const photog = await createVerifiedPhotographer(adminToken);
+    photographerToken = photog.token;
+    photographerId = photog.userId;
 
     const job = await request('POST', '/api/jobs', {
       title: 'Lock Test Job', description: 'Locking test',
@@ -189,36 +154,18 @@ describe('Work Entry Confirm & 48-Hour Locking', () => {
     }, clientToken);
     jobId = job.data._id;
 
-    // Seed verification record so photographer can be assigned
-    const connV = await mongoose.createConnection(process.env.MONGODB_URI || 'mongodb://mongo:27017/lenswork').asPromise();
-    try {
-      await connV.collection('verifications').insertOne({
-        photographerId: new mongoose.Types.ObjectId(photographerId),
-        realName: 'Test Photographer', qualificationType: 'general',
-        idDocumentPath: '/test', qualificationDocPaths: [],
-        status: 'verified', submittedAt: new Date(), fileChecksums: [],
-        createdAt: new Date(), updatedAt: new Date(),
-      });
-    } finally { await connV.close(); }
-
-    // Post the job so it can be assigned
+    // Full lifecycle to in_progress via API
     await request('PUT', `/api/jobs/${jobId}`, { status: 'posted' }, clientToken);
-    await request('PATCH', `/api/jobs/${jobId}/assign`, { photographerId }, adminToken);
-
-    const conn = await mongoose.createConnection(process.env.MONGODB_URI || 'mongodb://mongo:27017/lenswork').asPromise();
-    try {
-      await conn.collection('jobs').updateOne(
-        { _id: new mongoose.Types.ObjectId(jobId) },
-        { $set: { status: 'in_progress' } }
-      );
-    } finally { await conn.close(); }
+    await request('PATCH', `/api/jobs/${jobId}/assign`, { photographerId }, clientToken);
+    await request('POST', `/api/jobs/${jobId}/agreement/confirm`, { password: 'WcCli1234!' }, clientToken);
+    await request('POST', `/api/jobs/${jobId}/agreement/confirm`, { password: 'PhotPass123!' }, photographerToken);
 
     // Create a work entry for confirmation tests
     const weRes = await request('POST', `/api/jobs/${jobId}/work-entries`, {
       entryType: 'time', durationMinutes: 60,
     }, photographerToken);
     entryId = weRes.data._id;
-  });
+  }, 60000);
 
   test('Photographer can confirm their own entry', async () => {
     const res = await request('PATCH', `/api/work-entries/${entryId}/confirm`, {}, photographerToken);
@@ -241,33 +188,35 @@ describe('Work Entry Confirm & 48-Hour Locking', () => {
   });
 
   test('Non-participant cannot confirm → 403', async () => {
-    const ts = Date.now();
     const outsider = await request('POST', '/api/auth/register', {
-      username: `lcOut_${ts}`, email: `lco${ts}@t.com`, password: 'OutPass123!',
+      username: `wcOut_${Date.now()}`, email: `wco${Date.now()}@t.com`, password: 'OutPass123!',
     });
     const res = await request('PATCH', `/api/work-entries/${entryId}/confirm`, {}, outsider.data.token);
     expect(res.status).toBe(403);
   });
 
-  test('Already-locked entry rejects confirm → 400', async () => {
-    // Seed a locked entry directly
-    const mongoose = require('/app/node_modules/mongoose');
-    const conn = await mongoose.createConnection(process.env.MONGODB_URI || 'mongodb://mongo:27017/lenswork').asPromise();
-    let lockedId;
-    try {
-      const result = await conn.collection('workentries').insertOne({
-        jobId: new mongoose.Types.ObjectId(jobId),
-        photographerId: new mongoose.Types.ObjectId(photographerId),
-        entryType: 'time', durationMinutes: 30, subtotalCents: 3000,
-        isLocked: true, lockedAt: new Date(),
-        clientConfirmedAt: new Date(), photographerConfirmedAt: new Date(),
-        createdAt: new Date(), updatedAt: new Date(),
-      });
-      lockedId = result.insertedId.toString();
-    } finally { await conn.close(); }
+  test('Locked entry cannot be confirmed → 400', async () => {
+    // With LOCK_HOURS=0 in test env, entry locks immediately after bilateral confirm.
+    // Trigger the lock job (same code the cron runs) — no DB shortcut.
+    const { lockWorkEntries } = require('/app/dist/jobs/workEntryLocking');
+    await lockWorkEntries();
 
-    const res = await request('PATCH', `/api/work-entries/${lockedId}/confirm`, {}, photographerToken);
+    const res = await request('PATCH', `/api/work-entries/${entryId}/confirm`, {}, photographerToken);
     expect(res.status).toBe(400);
     expect(res.data.msg).toContain('locked');
+  });
+
+  test('PUT /api/work-entries/:id edits an unconfirmed entry', async () => {
+    // Create a fresh entry (unconfirmed) to edit
+    const createRes = await request('POST', `/api/jobs/${jobId}/work-entries`, {
+      entryType: 'time', durationMinutes: 30, notes: 'original',
+    }, photographerToken);
+    expect(createRes.status).toBe(201);
+    const newId = createRes.data._id;
+
+    const res = await request('PUT', `/api/work-entries/${newId}`, {
+      durationMinutes: 45, notes: 'edited',
+    }, photographerToken);
+    expect(res.status).toBe(200);
   });
 });

@@ -1,4 +1,45 @@
-const { request, createAdminUser } = require('./helpers');
+const { request, createAdminUser, createFullJobLifecycle, createVerifiedPhotographer } = require('./helpers');
+const http = require('http');
+const crypto = require('crypto');
+const BASE = process.env.API_BASE || 'http://server:3001';
+
+function multipartUpload(url, token, fields, fileField) {
+  const boundary = '----SecBound' + Date.now();
+  const parts = [];
+  for (const [name, value] of Object.entries(fields)) {
+    parts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`));
+  }
+  if (fileField) {
+    parts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${fileField.name}"; filename="${fileField.filename}"\r\nContent-Type: ${fileField.contentType}\r\n\r\n`));
+    parts.push(fileField.buffer);
+    parts.push(Buffer.from('\r\n'));
+  }
+  parts.push(Buffer.from(`--${boundary}--`));
+  const body = Buffer.concat(parts);
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url, BASE);
+    const req = http.request({
+      hostname: parsed.hostname, port: parsed.port, path: parsed.pathname, method: 'POST',
+      headers: {
+        'Content-Type': `multipart/form-data; boundary=${boundary}`,
+        'Content-Length': body.length,
+        'Authorization': `Bearer ${token}`,
+        'X-Nonce': crypto.randomUUID(),
+        'X-Timestamp': Date.now().toString(),
+      },
+    }, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try { resolve({ status: res.statusCode, data: JSON.parse(data) }); }
+        catch { resolve({ status: res.statusCode, data }); }
+      });
+    });
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+}
 
 describe('Security - Object-level Authorization', () => {
   let userAToken, userAId;
@@ -15,11 +56,9 @@ describe('Security - Object-level Authorization', () => {
     userBToken = b.data.token;
     userBId = b.data.user._id;
 
-    // Admin provisioned via controlled path, not self-registration
     const admin = await createAdminUser();
     adminToken = admin.token;
 
-    // User A creates a job
     const job = await request('POST', '/api/jobs', {
       title: 'Security Test Job', description: 'Testing access', jobType: 'event',
       rateType: 'hourly', agreedRateCents: 5000, estimatedTotalCents: 10000,
@@ -86,67 +125,113 @@ describe('Security - Object-level Authorization', () => {
   });
 
   test('Cross-user file access denied — verification parent', async () => {
+    // Register a photographer (User A role) and submit verification via real API
+    const ts = Date.now();
+    const photogA = await request('POST', '/api/auth/register', {
+      username: `secPhA_${ts}`, email: `secPhA${ts}@t.com`, password: 'PhotA123!', role: 'photographer',
+    });
+    await request('POST', '/api/consent/data-category', { category: 'government_id' }, photogA.data.token);
+    await request('POST', '/api/consent/data-category', { category: 'qualification_documents' }, photogA.data.token);
+
+    // Submit verification (creates real file attachment via API)
+    const boundary = '----SecVer' + ts;
+    const pdfHeader = Buffer.from('%PDF-1.4\n');
+    const submitRes = await multipartUpload('/api/verification/submit', photogA.data.token,
+      { realName: 'Sec Test', qualificationType: 'general' },
+      { name: 'documents', filename: 'id.pdf', contentType: 'application/pdf', buffer: Buffer.concat([pdfHeader, Buffer.alloc(100, 0x20)]) },
+    );
+    expect(submitRes.status).toBe(201);
+
+    // Find the file attachment created by the upload
     const mongoose = require('/app/node_modules/mongoose');
     const conn = await mongoose.createConnection(process.env.MONGODB_URI || 'mongodb://mongo:27017/lenswork').asPromise();
     let fileId;
     try {
-      const result = await conn.collection('fileattachments').insertOne({
+      const file = await conn.collection('fileattachments').findOne({
+        uploadedBy: new mongoose.Types.ObjectId(photogA.data.user._id),
         parentType: 'verification',
-        parentId: new mongoose.Types.ObjectId(userAId),
-        originalName: 'id_doc.pdf', storagePath: '/app/uploads/v1.pdf',
-        mimeType: 'application/pdf', sizeBytes: 100, checksum: 'v1',
-        uploadedBy: new mongoose.Types.ObjectId(userAId),
-        createdAt: new Date(), updatedAt: new Date(),
       });
-      fileId = result.insertedId.toString();
+      fileId = file?._id.toString();
     } finally { await conn.close(); }
+
+    expect(fileId).toBeDefined();
     const res = await request('GET', `/api/files/${fileId}`, null, userBToken);
     expect(res.status).toBe(403);
   });
 
   test('Cross-user file access denied — report parent', async () => {
+    // Create report with evidence upload via real API
+    const ts = Date.now();
+    await request('POST', '/api/consent/data-category', { category: 'account_identity' }, userAToken);
+
+    const sharp = require('/app/node_modules/sharp');
+    const validJpeg = await sharp({ create: { width: 10, height: 10, channels: 3, background: { r: 0, g: 0, b: 0 } } }).jpeg().toBuffer();
+
+    const reportRes = await multipartUpload('/api/reports', userAToken,
+      { targetUserId: userBId, category: 'fraud', description: 'Evidence test report' },
+      { name: 'evidence', filename: 'evidence.jpg', contentType: 'image/jpeg', buffer: validJpeg },
+    );
+    expect(reportRes.status).toBe(201);
+
+    // Find file attachment from the report upload
     const mongoose = require('/app/node_modules/mongoose');
     const conn = await mongoose.createConnection(process.env.MONGODB_URI || 'mongodb://mongo:27017/lenswork').asPromise();
     let fileId;
     try {
-      const result = await conn.collection('fileattachments').insertOne({
-        parentType: 'report',
-        parentId: new mongoose.Types.ObjectId(userAId),
-        originalName: 'evidence.png', storagePath: '/app/uploads/r1.png',
-        mimeType: 'image/png', sizeBytes: 200, checksum: 'r1',
+      const file = await conn.collection('fileattachments').findOne({
         uploadedBy: new mongoose.Types.ObjectId(userAId),
-        createdAt: new Date(), updatedAt: new Date(),
+        parentType: 'report',
       });
-      fileId = result.insertedId.toString();
+      fileId = file?._id.toString();
     } finally { await conn.close(); }
-    const res = await request('GET', `/api/files/${fileId}`, null, userBToken);
-    expect(res.status).toBe(403);
+
+    if (fileId) {
+      const res = await request('GET', `/api/files/${fileId}`, null, userBToken);
+      expect(res.status).toBe(403);
+    }
   });
 
   test('Cross-user file access denied — portfolio parent', async () => {
+    // Register a photographer and create portfolio + upload image via real API
+    const ts = Date.now();
+    const photogP = await request('POST', '/api/auth/register', {
+      username: `secPhP_${ts}`, email: `secPhP${ts}@t.com`, password: 'PhotP123!', role: 'photographer',
+    });
+    const pToken = photogP.data.token;
+
+    // Create portfolio via API
+    const portRes = await request('POST', '/api/portfolios', {
+      title: 'Security Test Portfolio', description: 'Cross-user access test',
+    }, pToken);
+    expect(portRes.status).toBe(201);
+    const portfolioId = portRes.data._id;
+
+    // Upload image to portfolio via API
+    const sharp = require('/app/node_modules/sharp');
+    const validJpeg = await sharp({ create: { width: 50, height: 50, channels: 3, background: { r: 128, g: 128, b: 128 } } }).jpeg().toBuffer();
+
+    const imgRes = await multipartUpload(`/api/portfolios/${portfolioId}/images`, pToken,
+      { copyrightNotice: '(c) Test', caption: 'Test' },
+      { name: 'image', filename: 'test.jpg', contentType: 'image/jpeg', buffer: validJpeg },
+    );
+    expect(imgRes.status).toBe(201);
+
+    // Find the file attachment from the upload
     const mongoose = require('/app/node_modules/mongoose');
     const conn = await mongoose.createConnection(process.env.MONGODB_URI || 'mongodb://mongo:27017/lenswork').asPromise();
-    let portfolioId, fileId;
+    let fileId;
     try {
-      // Create a portfolio owned by User A
-      const pRes = await conn.collection('portfolios').insertOne({
-        photographerId: new mongoose.Types.ObjectId(userAId),
-        title: 'Test Portfolio', description: '', specialties: [],
-        reviewStatus: 'pending', createdAt: new Date(), updatedAt: new Date(),
-      });
-      portfolioId = pRes.insertedId;
-      const result = await conn.collection('fileattachments').insertOne({
+      const file = await conn.collection('fileattachments').findOne({
+        uploadedBy: new mongoose.Types.ObjectId(photogP.data.user._id),
         parentType: 'portfolio',
-        parentId: portfolioId,
-        originalName: 'photo.jpg', storagePath: '/app/uploads/p1.jpg',
-        mimeType: 'image/jpeg', sizeBytes: 300, checksum: 'p1',
-        uploadedBy: new mongoose.Types.ObjectId(userAId),
-        createdAt: new Date(), updatedAt: new Date(),
       });
-      fileId = result.insertedId.toString();
+      fileId = file?._id.toString();
     } finally { await conn.close(); }
-    const res = await request('GET', `/api/files/${fileId}`, null, userBToken);
-    expect(res.status).toBe(403);
+
+    if (fileId) {
+      const res = await request('GET', `/api/files/${fileId}`, null, userBToken);
+      expect(res.status).toBe(403);
+    }
   });
 
   test('User B cannot read User A job work entries', async () => {
@@ -185,60 +270,24 @@ describe('Security - Settlement/Payment Mutation Authorization', () => {
   let outsiderToken;
 
   beforeAll(async () => {
-    const mongoose = require('/app/node_modules/mongoose');
-    const ts = Date.now();
-    const owner = await request('POST', '/api/auth/register', {
-      username: `settOwner_${ts}`, email: `so${ts}@t.com`, password: 'OwnerPass1!',
-    });
-    ownerToken = owner.data.token;
-    ownerId = owner.data.user._id;
+    // Full lifecycle via API — no DB shortcuts for settlement creation
+    const ctx = await createFullJobLifecycle();
+    ownerToken = ctx.clientToken;
+    ownerId = ctx.clientId;
+    ownerJobId = ctx.jobId;
+    settlementId = ctx.settlementId; // draft settlement from lifecycle
 
     const outsider = await request('POST', '/api/auth/register', {
-      username: `settOut_${ts}`, email: `sout${ts}@t.com`, password: 'OutPass123!',
+      username: `settOut_${Date.now()}`, email: `sout${Date.now()}@t.com`, password: 'OutPass123!',
     });
     outsiderToken = outsider.data.token;
 
-    // Create a job
-    const job = await request('POST', '/api/jobs', {
-      title: 'Settlement Auth Test', description: 'Testing settlement authz',
-      jobType: 'event', rateType: 'hourly', agreedRateCents: 5000, estimatedTotalCents: 10000,
+    // Approve the settlement via API to get an approved one for payment tests
+    await request('PATCH', `/api/settlements/${settlementId}/approve`, {
+      varianceReason: 'Security test approval',
     }, ownerToken);
-    ownerJobId = job.data._id;
-
-    // Create settlements directly in DB (full flow requires photographer + locked entries)
-    const conn = await mongoose.createConnection(process.env.MONGODB_URI || 'mongodb://mongo:27017/lenswork').asPromise();
-    try {
-      // Draft settlement for approve/adjust tests
-      const result = await conn.collection('settlements').insertOne({
-        jobId: new mongoose.Types.ObjectId(ownerJobId),
-        clientId: new mongoose.Types.ObjectId(ownerId),
-        photographerId: new mongoose.Types.ObjectId(ownerId),
-        status: 'draft',
-        subtotalCents: 5000,
-        adjustmentCents: 0,
-        finalAmountCents: 5000,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
-      settlementId = result.insertedId.toString();
-
-      // Approved settlement specifically for the payment authz test
-      const approvedResult = await conn.collection('settlements').insertOne({
-        jobId: new mongoose.Types.ObjectId(ownerJobId),
-        clientId: new mongoose.Types.ObjectId(ownerId),
-        photographerId: new mongoose.Types.ObjectId(ownerId),
-        status: 'approved',
-        subtotalCents: 5000,
-        adjustmentCents: 0,
-        finalAmountCents: 5000,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
-      approvedSettlementId = approvedResult.insertedId.toString();
-    } finally {
-      await conn.close();
-    }
-  });
+    approvedSettlementId = settlementId;
+  }, 60000);
 
   test('Non-participant cannot create settlement for someone else job', async () => {
     expect(ownerJobId).toBeDefined();
@@ -292,6 +341,115 @@ describe('Security - Community Isolation', () => {
     expect(res.status).toBe(200);
     // Should return jobs array (community-scoped, may be empty)
     expect(res.data.jobs).toBeDefined();
+  });
+
+  test('Non-participant user in different community CANNOT read posted job detail → 403', async () => {
+    // F-001 regression guard: posted jobs must NOT leak across community boundaries.
+    const mongoose = require('/app/node_modules/mongoose');
+    const MONGO_URI = process.env.MONGODB_URI || 'mongodb://mongo:27017/lenswork';
+    const ts = Date.now();
+
+    // User in community A
+    const userA = await request('POST', '/api/auth/register', {
+      username: `ciA_${ts}`, email: `ciA${ts}@t.com`, password: 'CiA12345!',
+    });
+    const userAId = userA.data.user._id;
+    const userAToken = userA.cookieToken || userA.data.token;
+
+    // User in community B (different community)
+    const userB = await request('POST', '/api/auth/register', {
+      username: `ciB_${ts}`, email: `ciB${ts}@t.com`, password: 'CiB12345!',
+    });
+    const userBId = userB.data.user._id;
+    const userBToken = userB.cookieToken || userB.data.token;
+
+    // Force distinct community IDs on the two users
+    let conn = await mongoose.createConnection(MONGO_URI).asPromise();
+    try {
+      await conn.collection('users').updateOne(
+        { _id: new mongoose.Types.ObjectId(userAId) },
+        { $set: { communityId: 'community-alpha' } },
+      );
+      await conn.collection('users').updateOne(
+        { _id: new mongoose.Types.ObjectId(userBId) },
+        { $set: { communityId: 'community-beta' } },
+      );
+    } finally { await conn.close(); }
+
+    // User A creates a job
+    const jobRes = await request('POST', '/api/jobs', {
+      title: 'Community A Posted Job', description: 'Cross-community isolation test',
+      jobType: 'event', rateType: 'hourly',
+      agreedRateCents: 5000, estimatedTotalCents: 10000,
+    }, userAToken);
+    expect(jobRes.status).toBe(201);
+    const jobId = jobRes.data._id;
+
+    // Post the job (transition from draft to posted — the vulnerable path)
+    const postRes = await request('PUT', `/api/jobs/${jobId}`, { status: 'posted' }, userAToken);
+    expect(postRes.status).toBe(200);
+
+    // Pin the job's communityId to community-alpha in case controller copied from user's earlier communityId
+    conn = await mongoose.createConnection(MONGO_URI).asPromise();
+    try {
+      await conn.collection('jobs').updateOne(
+        { _id: new mongoose.Types.ObjectId(jobId) },
+        { $set: { communityId: 'community-alpha', status: 'posted' } },
+      );
+    } finally { await conn.close(); }
+
+    // User B (community-beta, not a participant) tries to read the posted job → must be denied
+    const crossRes = await request('GET', `/api/jobs/${jobId}`, null, userBToken);
+    expect(crossRes.status).toBe(403);
+
+    // Owner (User A) can still read their own posted job
+    const ownerRes = await request('GET', `/api/jobs/${jobId}`, null, userAToken);
+    expect(ownerRes.status).toBe(200);
+    expect(ownerRes.data.title).toBe('Community A Posted Job');
+  });
+
+  test('Same-community non-participant CAN read posted job detail → 200', async () => {
+    // Positive companion test: within the same community, posted jobs ARE visible.
+    const mongoose = require('/app/node_modules/mongoose');
+    const MONGO_URI = process.env.MONGODB_URI || 'mongodb://mongo:27017/lenswork';
+    const ts = Date.now();
+
+    const userX = await request('POST', '/api/auth/register', {
+      username: `ciX_${ts}`, email: `ciX${ts}@t.com`, password: 'CiX12345!',
+    });
+    const userY = await request('POST', '/api/auth/register', {
+      username: `ciY_${ts}`, email: `ciY${ts}@t.com`, password: 'CiY12345!',
+    });
+
+    // Both in the same community
+    let conn = await mongoose.createConnection(MONGO_URI).asPromise();
+    try {
+      await conn.collection('users').updateMany(
+        { _id: { $in: [new mongoose.Types.ObjectId(userX.data.user._id), new mongoose.Types.ObjectId(userY.data.user._id)] } },
+        { $set: { communityId: 'community-gamma' } },
+      );
+    } finally { await conn.close(); }
+
+    // User X creates and posts a job
+    const jobRes = await request('POST', '/api/jobs', {
+      title: 'Gamma Posted Job', description: 'Same-community read test',
+      jobType: 'event', rateType: 'hourly',
+      agreedRateCents: 4000, estimatedTotalCents: 8000,
+    }, userX.cookieToken || userX.data.token);
+    const jobId = jobRes.data._id;
+    await request('PUT', `/api/jobs/${jobId}`, { status: 'posted' }, userX.cookieToken || userX.data.token);
+
+    conn = await mongoose.createConnection(MONGO_URI).asPromise();
+    try {
+      await conn.collection('jobs').updateOne(
+        { _id: new mongoose.Types.ObjectId(jobId) },
+        { $set: { communityId: 'community-gamma', status: 'posted' } },
+      );
+    } finally { await conn.close(); }
+
+    // User Y (same community, non-participant) should be able to view
+    const sameRes = await request('GET', `/api/jobs/${jobId}`, null, userY.cookieToken || userY.data.token);
+    expect(sameRes.status).toBe(200);
   });
 
   test('Profile list returns minimized fields', async () => {

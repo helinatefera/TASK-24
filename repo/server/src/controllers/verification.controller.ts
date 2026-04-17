@@ -11,6 +11,15 @@ export const adminReviewSchema = z.object({
   message: 'Either status or decision is required',
 });
 
+export const verificationSubmitSchema = z.object({
+  realName: z.string().min(2, 'Real name is required (min 2 characters)').max(200),
+  qualificationType: z.enum(
+    ['general', 'photography', 'videography', 'event', 'portrait', 'commercial'],
+    { errorMap: () => ({ message: 'qualificationType must be one of: general, photography, videography, event, portrait, commercial' }) },
+  ),
+  issuingAuthority: z.string().max(200).optional(),
+});
+
 export const verificationIdParamSchema = z.object({
   id: z.string().min(1),
 });
@@ -19,6 +28,13 @@ export async function submit(req: Request, res: Response, next: NextFunction): P
   try {
     if (!req.files || (Array.isArray(req.files) && req.files.length === 0)) {
       res.status(400).json({ code: 400, msg: 'No documents uploaded' });
+      return;
+    }
+
+    // Validate required identity fields — reject placeholder/missing values
+    const bodyParse = verificationSubmitSchema.safeParse(req.body);
+    if (!bodyParse.success) {
+      res.status(400).json({ code: 400, msg: bodyParse.error.errors[0].message });
       return;
     }
     // Handle both multer.fields() and multer.array() upload patterns
@@ -48,13 +64,30 @@ export async function submit(req: Request, res: Response, next: NextFunction): P
       storedPaths.push(attachment.storagePath);
       checksums.push(attachment.checksum);
     }
+    // Handle tax form upload separately — stored and encrypted under 'tax_forms' category
+    let taxFormPath: string | undefined;
+    if (req.files && !Array.isArray(req.files) && req.files['taxForm']?.length) {
+      const taxFile = req.files['taxForm'][0];
+      const taxAttachment = await validateAndStore({
+        buffer: taxFile.buffer,
+        originalName: taxFile.originalname,
+        mimeType: taxFile.mimetype,
+        parentType: 'verification',
+        parentId: req.user!.userId,
+        uploadedBy: req.user!.userId,
+      });
+      taxFormPath = taxAttachment.storagePath;
+      checksums.push(taxAttachment.checksum);
+    }
+
     const result = await verificationService.submitVerification({
       photographerId: req.user!.userId,
-      realName: req.body.realName || req.body.documentType || 'Not provided',
-      qualificationType: req.body.qualificationType || req.body.documentType || 'general',
-      issuingAuthority: req.body.issuingAuthority,
+      realName: bodyParse.data.realName,
+      qualificationType: bodyParse.data.qualificationType,
+      issuingAuthority: bodyParse.data.issuingAuthority,
       idDocumentPath: storedPaths[0] || '',
       qualificationDocPaths: storedPaths.slice(1),
+      taxFormPath,
       fileChecksums: checksums,
     });
     res.status(201).json(result);

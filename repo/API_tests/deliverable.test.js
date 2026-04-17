@@ -1,4 +1,4 @@
-const { request, createAdminUser } = require('./helpers');
+const { request, createAdminUser, createVerifiedPhotographer } = require('./helpers');
 const http = require('http');
 const crypto = require('crypto');
 
@@ -70,29 +70,21 @@ describe('H-01: Deliverable Upload Auth & Validation', () => {
     const admin = await createAdminUser();
     adminToken = admin.token;
 
+    // Re-register photographer through verified flow instead of DB seeding
+    const verifiedPhotog = await createVerifiedPhotographer(adminToken);
+    photographerToken = verifiedPhotog.token;
+    photographerId = verifiedPhotog.userId;
+
     const job = await request('POST', '/api/jobs', {
       title: 'H01 Test Job', description: 'Deliverable auth test',
       jobType: 'event', rateType: 'hourly', agreedRateCents: 5000, estimatedTotalCents: 10000,
     }, alumniToken);
     jobId = job.data._id;
 
-    // Seed verification record so photographer can be assigned
-    const mongoose = require('/app/node_modules/mongoose');
-    const conn = await mongoose.createConnection(process.env.MONGODB_URI || 'mongodb://mongo:27017/lenswork').asPromise();
-    try {
-      await conn.collection('verifications').insertOne({
-        photographerId: new mongoose.Types.ObjectId(photographerId),
-        realName: 'Test Photographer', qualificationType: 'general',
-        idDocumentPath: '/test', qualificationDocPaths: [],
-        status: 'verified', submittedAt: new Date(), fileChecksums: [],
-        createdAt: new Date(), updatedAt: new Date(),
-      });
-    } finally { await conn.close(); }
-
-    // Post the job so it can be assigned
+    // Full lifecycle: post → assign via API (no DB seeding)
     await request('PUT', `/api/jobs/${jobId}`, { status: 'posted' }, alumniToken);
-    await request('PATCH', `/api/jobs/${jobId}/assign`, { photographerId }, adminToken);
-  });
+    await request('PATCH', `/api/jobs/${jobId}/assign`, { photographerId }, alumniToken);
+  }, 60000);
 
   test('Unauthorized (no token) upload → 401', async () => {
     const res = await request('POST', `/api/jobs/${jobId}/deliverables`, {});

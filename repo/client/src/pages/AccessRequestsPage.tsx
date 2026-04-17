@@ -134,8 +134,24 @@ export default function AccessRequestsPage() {
                   <td className="px-6 py-3 font-mono text-xs">{tab === 'incoming' ? req.requesterId : req.targetUserId}</td>
                   <td className="px-6 py-3">{(req.fields || []).join(', ')}</td>
                   <td className="px-6 py-3 text-gray-600 max-w-xs truncate">{req.reason}</td>
-                  <td className="px-6 py-3"><StatusBadge status={req.status} /></td>
-                  <td className="px-6 py-3">{formatDateTime(req.createdAt || req.expiresAt)}</td>
+                  <td className="px-6 py-3">
+                    <StatusBadge status={req.status} />
+                    {req.status === 'pending' && req.expiresAt && (() => {
+                      const msLeft = new Date(req.expiresAt).getTime() - Date.now();
+                      if (msLeft <= 0) return <span className="ml-2 text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded">Expired</span>;
+                      const daysLeft = Math.ceil(msLeft / (24 * 60 * 60 * 1000));
+                      const urgent = daysLeft <= 1;
+                      return (
+                        <span className={`ml-2 text-xs px-2 py-0.5 rounded ${urgent ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-800'}`}>
+                          {daysLeft}d left
+                        </span>
+                      );
+                    })()}
+                  </td>
+                  <td className="px-6 py-3">
+                    <div>{formatDateTime(req.createdAt)}</div>
+                    {req.expiresAt && <div className="text-xs text-gray-400">Expires {formatDateTime(req.expiresAt)}</div>}
+                  </td>
                   {tab === 'incoming' && (
                     <td className="px-6 py-3">
                       {req.status === 'pending' && (

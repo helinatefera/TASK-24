@@ -1,4 +1,4 @@
-const { request, createAdminUser } = require('./helpers');
+const { request, createAdminUser, submitReportWithEvidence } = require('./helpers');
 
 describe('H-02: Consent Contract & Enforcement', () => {
   let userToken, userId;
@@ -104,18 +104,18 @@ describe('H-02: Consent Contract & Enforcement', () => {
   test('Report creation blocked without account_identity consent → 403', async () => {
     // Ensure account_identity consent is NOT granted
     await request('DELETE', '/api/consent/data-category/account_identity', null, userToken).catch(() => {});
-    const res = await request('POST', '/api/reports', {
+    const res = await submitReportWithEvidence(userToken, {
       targetUserId: userId, category: 'spam', description: 'Test report',
-    }, userToken);
+    });
     expect(res.status).toBe(403);
     expect(res.data.msg).toContain('account_identity');
   });
 
   test('Report creation succeeds after granting account_identity consent', async () => {
     await request('POST', '/api/consent/data-category', { category: 'account_identity' }, userToken);
-    const res = await request('POST', '/api/reports', {
+    const res = await submitReportWithEvidence(userToken, {
       targetUserId: userId, category: 'spam', description: 'Test report after consent',
-    }, userToken);
+    });
     expect(res.status).toBe(201);
   });
 

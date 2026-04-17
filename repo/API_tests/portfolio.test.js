@@ -152,6 +152,15 @@ describe('H-03 & H-05: Portfolio Contract & Watermark Preview', () => {
     expect(res.status).toBe(403);
   });
 
+  test('PUT /api/portfolios/:id updates portfolio metadata', async () => {
+    const res = await request('PUT', `/api/portfolios/${portfolioId}`, {
+      title: 'Updated Portfolio Title',
+      description: 'Updated description',
+    }, photographerToken);
+    expect(res.status).toBe(200);
+    expect(res.data.title).toBe('Updated Portfolio Title');
+  });
+
   test('Image removal by owner → 200', async () => {
     const listRes = await request('GET', `/api/portfolios/${portfolioId}/images`, null, photographerToken);
     expect(listRes.data.images.length).toBeGreaterThan(0);

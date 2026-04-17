@@ -27,7 +27,7 @@ export async function register(req: Request, res: Response, next: NextFunction):
   try {
     const result = await authService.register(req.body);
     res.cookie('session', result.token, COOKIE_OPTIONS);
-    res.status(201).json({ user: result.user, token: result.token });
+    res.status(201).json({ user: result.user });
   } catch (err) {
     next(err);
   }
@@ -37,7 +37,7 @@ export async function login(req: Request, res: Response, next: NextFunction): Pr
   try {
     const result = await authService.login(req.body);
     res.cookie('session', result.token, COOKIE_OPTIONS);
-    res.status(200).json({ user: result.user, token: result.token });
+    res.status(200).json({ user: result.user });
   } catch (err) {
     next(err);
   }

@@ -14,6 +14,7 @@ export interface SubmitVerificationInput {
   issuingAuthority?: string;
   idDocumentPath: string;
   qualificationDocPaths: string[];
+  taxFormPath?: string;
   fileChecksums: string[];
 }
 
@@ -29,12 +30,23 @@ export async function submitVerification(input: SubmitVerificationInput) {
     throw new ForbiddenError('Consent for qualification_documents data category is required before submitting verification');
   }
 
-  // Encrypt sensitive fields
+  // If tax form is provided, enforce tax_forms consent
+  if (input.taxFormPath) {
+    const { hasConsent: hasTaxConsent } = await checkConsent(input.photographerId, 'tax_forms');
+    if (!hasTaxConsent) {
+      throw new ForbiddenError('Consent for tax_forms data category is required before submitting tax documents');
+    }
+  }
+
+  // Encrypt sensitive fields with category-specific derived keys
   const encryptedRealName = encrypt(input.realName, 'government_id');
   const encryptedIdDocPath = encrypt(input.idDocumentPath, 'government_id');
   const encryptedQualDocPaths = input.qualificationDocPaths.map(
     p => encrypt(p, 'qualification_documents')
   );
+  const encryptedTaxFormPath = input.taxFormPath
+    ? encrypt(input.taxFormPath, 'tax_forms')
+    : undefined;
 
   const verification = await Verification.create({
     photographerId: input.photographerId,
@@ -43,6 +55,7 @@ export async function submitVerification(input: SubmitVerificationInput) {
     issuingAuthority: input.issuingAuthority,
     idDocumentPath: encryptedIdDocPath,
     qualificationDocPaths: encryptedQualDocPaths,
+    taxFormPath: encryptedTaxFormPath,
     status: VerificationStatus.SUBMITTED,
     submittedAt: new Date(),
     fileChecksums: input.fileChecksums,
@@ -156,6 +169,9 @@ export async function getVerification(
       obj.qualificationDocPaths = obj.qualificationDocPaths.map(
         (p: string) => decrypt(p, 'qualification_documents')
       );
+      if (obj.taxFormPath) {
+        obj.taxFormPath = decrypt(obj.taxFormPath, 'tax_forms');
+      }
     } catch {
       // If decryption fails, return as-is
     }
@@ -169,6 +185,7 @@ export async function getVerification(
     }
     obj.idDocumentPath = '[REDACTED]';
     obj.qualificationDocPaths = obj.qualificationDocPaths.map(() => '[REDACTED]');
+    if (obj.taxFormPath) obj.taxFormPath = '[REDACTED]';
   }
 
   return obj;

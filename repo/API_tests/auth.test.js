@@ -4,13 +4,14 @@ describe('Auth API', () => {
   const user = { username: `testuser_${Date.now()}`, email: `test${Date.now()}@test.com`, password: 'TestPass123!' };
   let token;
 
-  test('POST /api/auth/register creates user', async () => {
+  test('POST /api/auth/register creates user with cookie-only auth', async () => {
     const res = await request('POST', '/api/auth/register', user);
     expect(res.status).toBe(201);
-    expect(res.data.token).toBeDefined();
     expect(res.data.user.username).toBe(user.username);
     expect(res.data.user.passwordHash).toBeUndefined();
-    token = res.data.token;
+    // Token must come from httpOnly cookie, NOT JSON body
+    expect(res.cookieToken).toBeDefined();
+    token = res.cookieToken;
   });
 
   test('POST /api/auth/register rejects duplicate username', async () => {
@@ -24,11 +25,13 @@ describe('Auth API', () => {
     expect(res.data.msg).toBeDefined();
   });
 
-  test('POST /api/auth/login succeeds with correct credentials', async () => {
+  test('POST /api/auth/login returns user via cookie-only auth', async () => {
     const res = await request('POST', '/api/auth/login', { username: user.username, password: user.password });
     expect(res.status).toBe(200);
-    expect(res.data.token).toBeDefined();
-    token = res.data.token;
+    expect(res.data.user).toBeDefined();
+    // Token must come from httpOnly cookie, NOT JSON body
+    expect(res.cookieToken).toBeDefined();
+    token = res.cookieToken;
   });
 
   test('POST /api/auth/login fails with wrong password', async () => {

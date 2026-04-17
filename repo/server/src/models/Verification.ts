@@ -8,6 +8,7 @@ export interface IVerification extends Document {
   issuingAuthority?: string;
   idDocumentPath: string; // encrypted path
   qualificationDocPaths: string[]; // encrypted
+  taxFormPath?: string; // encrypted — AES-256-GCM with 'tax_forms' key
   status: VerificationStatus;
   reviewReason?: string;
   reviewedBy?: mongoose.Types.ObjectId;
@@ -23,6 +24,7 @@ const VerificationSchema = new Schema<IVerification>({
   issuingAuthority: String,
   idDocumentPath: { type: String, required: true },
   qualificationDocPaths: [String],
+  taxFormPath: String,
   status: { type: String, enum: Object.values(VerificationStatus), default: VerificationStatus.SUBMITTED },
   reviewReason: String,
   reviewedBy: { type: Schema.Types.ObjectId, ref: 'User' },

@@ -1,39 +1,21 @@
-const { request, createAdminUser } = require('./helpers');
+const { request, createFullJobLifecycle } = require('./helpers');
 
 describe('H-04: Payment & Escrow Payload Validation', () => {
   let ownerToken, ownerId, jobId, approvedSettlementId;
 
   beforeAll(async () => {
-    const mongoose = require('/app/node_modules/mongoose');
-    const ts = Date.now();
+    // Full lifecycle: register → verify → job → assign → agree → work → lock → settle
+    const ctx = await createFullJobLifecycle();
+    ownerToken = ctx.clientToken;
+    ownerId = ctx.clientId;
+    jobId = ctx.jobId;
 
-    const owner = await request('POST', '/api/auth/register', {
-      username: `h04Own_${ts}`, email: `h04o${ts}@t.com`, password: 'PayOwner1!',
-    });
-    ownerToken = owner.data.token;
-    ownerId = owner.data.user._id;
-
-    const admin = await createAdminUser();
-
-    const job = await request('POST', '/api/jobs', {
-      title: 'H04 Payment Test', description: 'Testing payment payloads',
-      jobType: 'event', rateType: 'hourly', agreedRateCents: 5000, estimatedTotalCents: 10000,
-    }, ownerToken);
-    jobId = job.data._id;
-
-    const conn = await mongoose.createConnection(process.env.MONGODB_URI || 'mongodb://mongo:27017/lenswork').asPromise();
-    try {
-      const result = await conn.collection('settlements').insertOne({
-        jobId: new mongoose.Types.ObjectId(jobId),
-        clientId: new mongoose.Types.ObjectId(ownerId),
-        photographerId: new mongoose.Types.ObjectId(ownerId),
-        status: 'approved',
-        subtotalCents: 50000, adjustmentCents: 0, finalAmountCents: 50000,
-        createdAt: new Date(), updatedAt: new Date(),
-      });
-      approvedSettlementId = result.insertedId.toString();
-    } finally { await conn.close(); }
-  });
+    // Approve the settlement via API so payments can be recorded
+    await request('PATCH', `/api/settlements/${ctx.settlementId}/approve`, {
+      varianceReason: 'Approved for payment test',
+    }, ctx.clientToken);
+    approvedSettlementId = ctx.settlementId;
+  }, 60000);
 
   // --- Payment amountCents validation ---
 

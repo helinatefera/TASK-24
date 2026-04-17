@@ -82,6 +82,10 @@ describe('VerificationPage', () => {
     renderPage();
     await waitFor(() => screen.getByText(/submit verification documents/i));
 
+    // Fill required identity fields
+    const realNameInput = screen.getByPlaceholderText(/legal name as shown on id/i);
+    fireEvent.change(realNameInput, { target: { value: 'Jane Doe' } });
+
     // Select a file
     const input = document.querySelector('input[type="file"]') as HTMLInputElement;
     const file = new File(['data'], 'id.pdf', { type: 'application/pdf' });
@@ -93,6 +97,41 @@ describe('VerificationPage', () => {
     await waitFor(() => {
       expect(screen.getByText(/submitted successfully/i)).toBeInTheDocument();
     });
+
+    // Verify FormData contract: realName and qualificationType MUST be sent
+    const formDataArg = (verificationApi.submit as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(formDataArg).toBeInstanceOf(FormData);
+    expect(formDataArg.get('realName')).toBe('Jane Doe');
+    expect(formDataArg.get('qualificationType')).toBeDefined();
+  });
+
+  it('blocks submit when realName is empty', async () => {
+    (verificationApi.getStatus as ReturnType<typeof vi.fn>).mockRejectedValueOnce({});
+    renderPage();
+    await waitFor(() => screen.getByText(/submit verification documents/i));
+
+    // Select a file but leave realName blank
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(['data'], 'id.pdf', { type: 'application/pdf' });
+    Object.defineProperty(input, 'files', { value: [file], configurable: true });
+    fireEvent.change(input);
+
+    // Button should still be disabled because realName is empty
+    expect(screen.getByRole('button', { name: /submit for verification/i })).toBeDisabled();
+  });
+
+  it('has realName input and qualificationType select required by backend', async () => {
+    (verificationApi.getStatus as ReturnType<typeof vi.fn>).mockRejectedValueOnce({});
+    renderPage();
+    await waitFor(() => screen.getByText(/submit verification documents/i));
+
+    expect(screen.getByText('Legal Name', { exact: false })).toBeInTheDocument();
+    expect(screen.getByText('Qualification Type', { exact: false })).toBeInTheDocument();
+
+    // Qualification type select has the backend-required enum options
+    const qualSelect = screen.getByText('Qualification Type', { exact: false }).parentElement!.querySelector('select') as HTMLSelectElement;
+    const options = Array.from(qualSelect.options).map(o => o.value);
+    expect(options).toEqual(expect.arrayContaining(['general', 'photography', 'videography', 'event', 'portrait', 'commercial']));
   });
 
   it('shows server error on submission failure', async () => {
@@ -103,6 +142,9 @@ describe('VerificationPage', () => {
 
     renderPage();
     await waitFor(() => screen.getByText(/submit verification documents/i));
+
+    // Fill required identity fields
+    fireEvent.change(screen.getByPlaceholderText(/legal name as shown on id/i), { target: { value: 'Test User' } });
 
     const input = document.querySelector('input[type="file"]') as HTMLInputElement;
     const file = new File(['data'], 'doc.pdf', { type: 'application/pdf' });

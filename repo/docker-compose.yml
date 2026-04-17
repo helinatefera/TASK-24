@@ -35,12 +35,13 @@ services:
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in .env}
       MASTER_ENCRYPTION_KEY: ${MASTER_ENCRYPTION_KEY:?MASTER_ENCRYPTION_KEY must be set in .env}
       BCRYPT_ROUNDS: "12"
-      RATE_LIMIT_PER_MIN: "300"
+      RATE_LIMIT_PER_MIN: "${RATE_LIMIT_PER_MIN:-60}"
       REPORTS_PER_DAY: "10"
       IDLE_TIMEOUT_MS: "900000"
       ABSOLUTE_EXPIRY_MS: "86400000"
       NONCE_WINDOW_MS: "600000"
       CLOCK_SKEW_MS: "120000"
+      LOCK_HOURS: "${LOCK_HOURS:-48}"
       UPLOAD_DIR: /app/uploads
       LOG_LEVEL: info
     volumes:

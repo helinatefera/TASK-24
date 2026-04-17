@@ -54,6 +54,8 @@ export async function checkConsentCurrent(userId: string): Promise<{
   isCurrent: boolean;
   consent: any | null;
   needsReconsent: boolean;
+  withinGracePeriod?: boolean;
+  reconsentDeadline?: Date;
 }> {
   const activeConsent = await Consent.findOne({ userId, isActive: true });
 
@@ -67,18 +69,33 @@ export async function checkConsentCurrent(userId: string): Promise<{
     return { isCurrent: true, consent: activeConsent, needsReconsent: false };
   }
 
-  // Consent is stale if policy version doesn't match the latest
-  if (activeConsent.policyVersion !== latestPolicy.version) {
-    return { isCurrent: false, consent: activeConsent, needsReconsent: true };
-  }
-
-  // Check reconsent deadline
   const now = new Date();
-  if (activeConsent.reconsentDeadline && now > activeConsent.reconsentDeadline) {
-    return { isCurrent: false, consent: activeConsent, needsReconsent: true };
+
+  // If version matches AND not flagged for reconsent, fully current
+  if (activeConsent.policyVersion === latestPolicy.version && !activeConsent.needsReconsent) {
+    return { isCurrent: true, consent: activeConsent, needsReconsent: false };
   }
 
-  return { isCurrent: true, consent: activeConsent, needsReconsent: false };
+  // Stale version or flagged — check grace window
+  if (activeConsent.reconsentDeadline && now <= activeConsent.reconsentDeadline) {
+    // Within 30-day grace window: consent still usable but user must be nudged
+    return {
+      isCurrent: true,
+      consent: activeConsent,
+      needsReconsent: true,
+      withinGracePeriod: true,
+      reconsentDeadline: activeConsent.reconsentDeadline,
+    };
+  }
+
+  // Past the deadline (or no deadline set yet) — treat as needing fresh consent
+  return {
+    isCurrent: false,
+    consent: activeConsent,
+    needsReconsent: true,
+    withinGracePeriod: false,
+    reconsentDeadline: activeConsent.reconsentDeadline,
+  };
 }
 
 export async function getPolicyHistory() {

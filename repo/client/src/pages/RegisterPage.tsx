@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { validateEmail, validatePassword, validateUsername } from '../utils/validators';
 
 export default function RegisterPage() {
   const [form, setForm] = useState({ username: '', email: '', password: '', role: 'alumni' });
@@ -12,6 +13,14 @@ export default function RegisterPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+
+    // Client-side validation using shared validators
+    const usernameError = validateUsername(form.username);
+    if (usernameError) { setError(usernameError); return; }
+    if (!validateEmail(form.email)) { setError('Please enter a valid email address'); return; }
+    const passwordError = validatePassword(form.password);
+    if (passwordError) { setError(passwordError); return; }
+
     setLoading(true);
     try {
       await register(form);

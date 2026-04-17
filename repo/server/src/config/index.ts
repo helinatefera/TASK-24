@@ -5,7 +5,7 @@ export const config = {
   jwtSecret: process.env.JWT_SECRET || '',
   masterEncryptionKey: process.env.MASTER_ENCRYPTION_KEY || '',
   bcryptRounds: parseInt(process.env.BCRYPT_ROUNDS || '12', 10),
-  rateLimitPerMin: parseInt(process.env.RATE_LIMIT_PER_MIN || '300', 10),
+  rateLimitPerMin: parseInt(process.env.RATE_LIMIT_PER_MIN || '60', 10),
   reportsPerDay: parseInt(process.env.REPORTS_PER_DAY || '10', 10),
   idleTimeoutMs: parseInt(process.env.IDLE_TIMEOUT_MS || '900000', 10),
   absoluteExpiryMs: parseInt(process.env.ABSOLUTE_EXPIRY_MS || '86400000', 10),

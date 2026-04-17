@@ -6,6 +6,8 @@ export interface IConsent extends Document {
   purposes: { purpose: string; consented: boolean; consentedAt: Date }[];
   consentedAt: Date;
   reconsentDeadline?: Date;
+  needsReconsent: boolean;
+  policyChangeDetectedAt?: Date;
   isActive: boolean;
 }
 
@@ -19,6 +21,8 @@ const ConsentSchema = new Schema<IConsent>({
   }],
   consentedAt: { type: Date, required: true },
   reconsentDeadline: Date,
+  needsReconsent: { type: Boolean, default: false },
+  policyChangeDetectedAt: Date,
   isActive: { type: Boolean, default: true },
 }, { timestamps: true });
 

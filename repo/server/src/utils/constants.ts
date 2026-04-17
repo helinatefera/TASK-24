@@ -1,4 +1,4 @@
-export const LOCK_HOURS = 48;
+export const LOCK_HOURS = parseInt(process.env.LOCK_HOURS || '48', 10);
 export const ACCESS_REQUEST_EXPIRY_DAYS = 7;
 export const CONSENT_RECHECK_DAYS = 30;
 export const FILE_MAX_SIZE = 10 * 1024 * 1024; // 10MB

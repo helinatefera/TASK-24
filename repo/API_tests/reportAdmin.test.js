@@ -1,4 +1,4 @@
-const { request, createAdminUser } = require('./helpers');
+const { request, createAdminUser, submitReportWithEvidence } = require('./helpers');
 
 describe('Admin Report Management — Status Transitions', () => {
   let adminToken;
@@ -19,10 +19,10 @@ describe('Admin Report Management — Status Transitions', () => {
     // Grant consent needed for report creation
     await request('POST', '/api/consent/data-category', { category: 'account_identity' }, userToken);
 
-    // Create a report
-    const rpt = await request('POST', '/api/reports', {
+    // Create a report (F-003: evidence attachment required)
+    const rpt = await submitReportWithEvidence(userToken, {
       targetUserId: userId, category: 'spam', description: 'Test report for admin flow',
-    }, userToken);
+    });
     reportId = rpt.data._id;
   });
 
@@ -70,10 +70,10 @@ describe('Admin Report Management — Status Transitions', () => {
   });
 
   test('Frontend-incompatible status "investigating" is rejected by schema', async () => {
-    // Create another report to test against
-    const rpt2 = await request('POST', '/api/reports', {
+    // Create another report to test against (F-003: evidence required)
+    const rpt2 = await submitReportWithEvidence(userToken, {
       targetUserId: userId, category: 'harassment', description: 'Second test report',
-    }, userToken);
+    });
     const res = await request('PATCH', `/api/admin/reports/${rpt2.data._id}`, {
       status: 'investigating',
       notes: 'Old frontend status',
