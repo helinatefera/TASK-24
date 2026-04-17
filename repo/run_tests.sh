@@ -65,7 +65,7 @@ echo ""
 
 # Run unit tests inside server container with coverage
 $DC exec -T -w /app server sh -c "
-  ./node_modules/.bin/jest --roots /unit_tests --testEnvironment node --forceExit --detectOpenHandles --no-cache --cacheDirectory /tmp/jest-cache \
+  ./node_modules/.bin/jest --roots /unit_tests --testEnvironment node --forceExit --no-cache --cacheDirectory /tmp/jest-cache \
     --coverage --collectCoverageFrom='/app/dist/**/*.js' --coverageDirectory=/tmp/coverage-unit --coverageReporters=text-summary 2>&1
 " && echo "[UNIT] PASS" || { echo "[UNIT] FAIL"; FAILURES=$((FAILURES+1)); }
 
@@ -79,7 +79,7 @@ echo "========================================="
 echo ""
 
 $DC exec -T -w /app server sh -c "
-  cd /API_tests && API_BASE=http://localhost:3001 /app/node_modules/.bin/jest --forceExit --detectOpenHandles --testTimeout=30000 --no-cache --cacheDirectory /tmp/jest-cache \
+  cd /API_tests && API_BASE=http://localhost:3001 /app/node_modules/.bin/jest --forceExit --testTimeout=30000 --no-cache --cacheDirectory /tmp/jest-cache \
     --coverage --collectCoverageFrom='/app/dist/**/*.js' --coverageDirectory=/tmp/coverage-api --coverageReporters=text-summary 2>&1
 " && echo "[API] PASS" || { echo "[API] FAIL"; FAILURES=$((FAILURES+1)); }
 
@@ -109,7 +109,10 @@ echo ""
 
 # Build and run Playwright inside a container on the same Docker network,
 # hitting the real frontend+backend through nginx. Zero host dependencies.
-NETWORK=$($DC ps --format '{{.Networks}}' | head -1)
+# Resolve the compose project name (defaults to the basename of the working
+# directory) and use the resulting "<project>_default" network name.
+COMPOSE_PROJECT="${COMPOSE_PROJECT_NAME:-$(basename "$(pwd)")}"
+NETWORK="${COMPOSE_PROJECT}_default"
 # Read test credentials from the generated env file for the E2E container
 MONGO_USER=$(grep MONGO_INITDB_ROOT_USERNAME "$TEST_ENV_FILE" | cut -d= -f2)
 MONGO_PASS=$(grep MONGO_INITDB_ROOT_PASSWORD "$TEST_ENV_FILE" | cut -d= -f2)

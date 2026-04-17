@@ -14,13 +14,21 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
+const PUBLIC_PATHS = ['/login', '/register'];
+
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      // Session cookie expired or invalid — redirect to login
       localStorage.removeItem('user');
-      window.location.href = '/login';
+      // Only redirect if the user is on a protected page. Otherwise the initial
+      // `/auth/me` probe on public pages (login, register) would kick the user
+      // off of the page they're trying to reach.
+      const currentPath = window.location.pathname;
+      const onPublicPage = PUBLIC_PATHS.some(p => currentPath.startsWith(p));
+      if (!onPublicPage) {
+        window.location.href = '/login';
+      }
     }
     return Promise.reject(error);
   }

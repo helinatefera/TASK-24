@@ -8,6 +8,6 @@
     "mongoose": "^8.0.3"
   },
   "devDependencies": {
-    "@playwright/test": "^1.41.0"
+    "@playwright/test": "1.41.0"
   }
 }
