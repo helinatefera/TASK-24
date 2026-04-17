@@ -1,4 +1,4 @@
-const { request, createAdminUser, createVerifiedPhotographer } = require('./helpers');
+const { request, createAdminUser, createVerifiedPhotographer, ensureMongooseConnected } = require('./helpers');
 
 describe('Work Entry Creation & Increment Validation', () => {
   let photographerToken, photographerId;
@@ -198,6 +198,7 @@ describe('Work Entry Confirmation & Locking', () => {
   test('Locked entry cannot be confirmed → 400', async () => {
     // With LOCK_HOURS=0 in test env, entry locks immediately after bilateral confirm.
     // Trigger the lock job (same code the cron runs) — no DB shortcut.
+    await ensureMongooseConnected();
     const { lockWorkEntries } = require('/app/dist/jobs/workEntryLocking');
     await lockWorkEntries();
 

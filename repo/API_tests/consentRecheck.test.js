@@ -1,4 +1,4 @@
-const { request, createAdminUser } = require('./helpers');
+const { request, createAdminUser, ensureMongooseConnected } = require('./helpers');
 
 /**
  * Integration test for the consent recheck cron job.
@@ -50,6 +50,7 @@ describe('Consent Recheck Job (cron-triggered reconsent)', () => {
     }, adminToken);
 
     // Run the real cron job function (same code the scheduler runs)
+    await ensureMongooseConnected();
     const { recheckConsents } = require('/app/dist/jobs/consentRecheck');
     await recheckConsents();
 
@@ -88,6 +89,7 @@ describe('Consent Recheck Job (cron-triggered reconsent)', () => {
       version: vB, content: 'B', effectiveDate: new Date(Date.now() + 1000).toISOString(), purposes: ['general'],
     }, adminToken);
 
+    await ensureMongooseConnected();
     const { recheckConsents } = require('/app/dist/jobs/consentRecheck');
     await recheckConsents();
 

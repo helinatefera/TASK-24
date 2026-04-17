@@ -4,7 +4,7 @@
  *   F-002: 30-day consent grace window (pre-deadline allowed, post-deadline enforced)
  *   F-003: report evidence required
  */
-const { request, createAdminUser, submitReportWithEvidence } = require('./helpers');
+const { request, createAdminUser, submitReportWithEvidence, ensureMongooseConnected } = require('./helpers');
 
 // -----------------------------------------------------------------------------
 // F-001: Cross-community posted-job detail access is denied
@@ -120,6 +120,7 @@ describe('F-002: 30-day consent grace window', () => {
   }, 30000);
 
   test('first recheck run flags consent but KEEPS isActive=true (within grace)', async () => {
+    await ensureMongooseConnected();
     const { recheckConsents } = require('/app/dist/jobs/consentRecheck');
     await recheckConsents();
 
@@ -162,6 +163,7 @@ describe('F-002: 30-day consent grace window', () => {
     } finally { await conn.close(); }
 
     // Run recheck again — should deactivate
+    await ensureMongooseConnected();
     const { recheckConsents } = require('/app/dist/jobs/consentRecheck');
     await recheckConsents();
 

@@ -42,7 +42,7 @@ describe('Content Review Decision Flow', () => {
 
     // Send a message containing the flagged word — triggers content review creation
     const msgRes = await request('POST', `/api/jobs/${jobId}/messages`, {
-      text: 'This message contains badtestword and should be flagged',
+      messageText: 'This message contains badtestword and should be flagged',
     }, photographerToken);
     // Message should succeed (content filter flags but doesn't block)
     expect(msgRes.status).toBe(201);
@@ -84,7 +84,7 @@ describe('Content Review Decision Flow', () => {
   test('Admin can reject review with {decision, reason} (frontend shape)', async () => {
     // Trigger another content review via a new flagged message
     await request('POST', `/api/jobs/${jobId}/messages`, {
-      text: 'Another badtestword message for rejection test',
+      messageText: 'Another badtestword message for rejection test',
     }, photographerToken);
 
     const reviewsRes = await request('GET', '/api/admin/content-reviews?status=pending', null, adminToken);
@@ -126,7 +126,7 @@ describe('Content Review Decision Flow', () => {
   test('Cannot approve already-rejected content → 400', async () => {
     // Trigger yet another review and reject it, then try to approve
     await request('POST', `/api/jobs/${jobId}/messages`, {
-      text: 'Third badtestword message for double-action test',
+      messageText: 'Third badtestword message for double-action test',
     }, photographerToken);
 
     const reviewsRes = await request('GET', '/api/admin/content-reviews?status=pending', null, adminToken);

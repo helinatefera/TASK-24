@@ -4,6 +4,26 @@ const crypto = require('crypto');
 const BASE = process.env.API_BASE || 'http://server:3001';
 const MONGO_URI = process.env.MONGODB_URI || 'mongodb://mongo:27017/lenswork';
 
+/**
+ * Establish the DEFAULT mongoose connection for the jest process.
+ * Required when tests call `require('/app/dist/jobs/...')` — those modules
+ * use mongoose models that operate on the default connection.
+ */
+let _connectedPromise = null;
+async function ensureMongooseConnected() {
+  if (_connectedPromise) return _connectedPromise;
+  const mongoose = require('/app/node_modules/mongoose');
+  if (mongoose.connection.readyState === 1) {
+    _connectedPromise = Promise.resolve();
+    return _connectedPromise;
+  }
+  _connectedPromise = mongoose.connect(MONGO_URI, {
+    serverSelectionTimeoutMS: 5000,
+    bufferCommands: false,
+  }).then(() => undefined);
+  return _connectedPromise;
+}
+
 function request(method, path, body, token) {
   return new Promise((resolve, reject) => {
     const url = new URL(path, BASE);
@@ -205,6 +225,7 @@ async function createFullJobLifecycle() {
 
   // With LOCK_HOURS=0 in the test env, lockAt is set to now on bilateral confirm.
   // Trigger the locking job (same code the cron runs) to lock the entry — no DB shortcut.
+  await ensureMongooseConnected();
   const { lockWorkEntries } = require('/app/dist/jobs/workEntryLocking');
   await lockWorkEntries();
 
@@ -261,4 +282,4 @@ function submitReportWithEvidence(token, body) {
   });
 }
 
-module.exports = { request, createAdminUser, createVerifiedPhotographer, createFullJobLifecycle, submitReportWithEvidence, BASE, MONGO_URI };
+module.exports = { request, createAdminUser, createVerifiedPhotographer, createFullJobLifecycle, submitReportWithEvidence, ensureMongooseConnected, BASE, MONGO_URI };

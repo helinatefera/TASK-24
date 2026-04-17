@@ -6,7 +6,7 @@
  * middleware, RBAC, content filter, and response serialization. This proves
  * the entire stack works as a unit, not just individual handlers.
  */
-const { request, createAdminUser, createVerifiedPhotographer } = require('./helpers');
+const { request, createAdminUser, createVerifiedPhotographer, ensureMongooseConnected } = require('./helpers');
 const http = require('http');
 const crypto = require('crypto');
 const BASE = process.env.API_BASE || 'http://server:3001';
@@ -141,6 +141,7 @@ describe('E2E: Full Job-to-Settlement Lifecycle', () => {
   test('Lock work entry via cron job and generate settlement', async () => {
     // With LOCK_HOURS=0, lockAt was set to ~now on bilateral confirm.
     // Trigger the same locking function the cron scheduler runs — zero DB shortcuts.
+    await ensureMongooseConnected();
     const { lockWorkEntries } = require('/app/dist/jobs/workEntryLocking');
     await lockWorkEntries();
 

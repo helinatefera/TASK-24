@@ -1,4 +1,4 @@
-const { request, createAdminUser, createFullJobLifecycle, registerUser, apiRequest } = require('./helpers');
+const { request, createAdminUser, createFullJobLifecycle, ensureMongooseConnected } = require('./helpers');
 const http = require('http');
 
 const BASE = process.env.API_BASE || 'http://server:3001';
@@ -155,6 +155,7 @@ describe('Edge: expired access request cannot be approved', () => {
     } finally { await conn.close(); }
 
     // Run the expiry cron function (same code the scheduler runs)
+    await ensureMongooseConnected();
     const { expireAccessRequests } = require('/app/dist/jobs/accessRequestExpiry');
     await expireAccessRequests();
 

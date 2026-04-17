@@ -33,13 +33,11 @@ export async function getAuditLogs(req: Request, res: Response, next: NextFuncti
     ]);
 
     res.status(200).json({
-      data: logs,
-      pagination: {
-        page: page as number,
-        limit: limit as number,
-        total,
-        totalPages: Math.ceil(total / (limit as number)),
-      },
+      items: logs,
+      total,
+      page: page as number,
+      limit: limit as number,
+      totalPages: Math.ceil(total / (limit as number)),
     });
   } catch (err) {
     next(err);

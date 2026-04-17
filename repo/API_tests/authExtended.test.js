@@ -65,7 +65,7 @@ describe('Auth Extended Routes', () => {
     const jobId = jobRes.data._id;
 
     const msgRes = await request('POST', `/api/jobs/${jobId}/messages`, {
-      text: 'Hello from auth extended test',
+      messageText: 'Hello from auth extended test',
     }, token);
     expect(msgRes.status).toBe(201);
   });
