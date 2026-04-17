@@ -5,8 +5,9 @@ echo "========================================="
 echo " LensWork Test Runner"
 echo "========================================="
 
-# Generate a temporary .env with test-only secrets so docker compose
-# satisfies the :? required-variable checks without a user-supplied .env.
+# Generate a temporary .env with test-only secrets. Overrides the dev-default
+# secrets in docker-compose.yml so each test run uses a fresh random JWT/key
+# and so tests can set LOCK_HOURS=0 and RATE_LIMIT_PER_MIN=10000.
 # This file is removed during teardown.
 TEST_ENV_FILE=".env.test.generated"
 node -e "

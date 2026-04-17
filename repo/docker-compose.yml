@@ -7,8 +7,10 @@ services:
       - mongo_data:/data/db
     environment:
       MONGO_INITDB_DATABASE: lenswork
-      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:?MONGO_INITDB_ROOT_USERNAME must be set in .env}
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:?MONGO_INITDB_ROOT_PASSWORD must be set in .env}
+      # Development-only defaults so `docker compose up` works out of the box.
+      # PRODUCTION: override via .env (copy .env.example, regenerate secrets).
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:-lenswork_dev}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:-devPass_NOT_FOR_PROD_0123456789}
     healthcheck:
       test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
       interval: 5s
@@ -31,9 +33,11 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3001
-      MONGODB_URI: mongodb://${MONGO_INITDB_ROOT_USERNAME}:${MONGO_INITDB_ROOT_PASSWORD}@mongo:27017/lenswork?authSource=admin
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in .env}
-      MASTER_ENCRYPTION_KEY: ${MASTER_ENCRYPTION_KEY:?MASTER_ENCRYPTION_KEY must be set in .env}
+      MONGODB_URI: mongodb://${MONGO_INITDB_ROOT_USERNAME:-lenswork_dev}:${MONGO_INITDB_ROOT_PASSWORD:-devPass_NOT_FOR_PROD_0123456789}@mongo:27017/lenswork?authSource=admin
+      # Development-only defaults so `docker compose up` works out of the box.
+      # PRODUCTION: override via .env. validateConfig() enforces min length at runtime.
+      JWT_SECRET: ${JWT_SECRET:-devONLY_jkL3mN4pQ5rS6tU7vW8xY9zA0bC1dE2fG3hI4jK5lM6nO7pQ8rS9tU0vW1x}
+      MASTER_ENCRYPTION_KEY: ${MASTER_ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
       BCRYPT_ROUNDS: "12"
       RATE_LIMIT_PER_MIN: "${RATE_LIMIT_PER_MIN:-60}"
       REPORTS_PER_DAY: "10"
